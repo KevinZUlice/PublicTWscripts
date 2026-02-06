@@ -183,30 +183,51 @@ javascript:(function () {
     return out;
   }
 
-  function kz_extractLastIntelBlock(noteText) {
+  function kz_extractMostRecentIntelBlock(noteText) {
     if (!noteText) return null;
+  
     const lines = noteText.split(/\r?\n/);
-
+  
+    // Nejnovější blok je nahoře -> hledej první marker odshora
     const markers = ['Měl doma', 'Měl mimo', 'Poslal', 'Padlo', 'Přežilo'];
-    let lastIdx = -1;
-    for (let i = lines.length - 1; i >= 0; i--) {
+  
+    let firstIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
       const L = lines[i];
-      if (markers.some(m => L.includes(m))) { lastIdx = i; break; }
+      if (markers.some(m => L.includes(m))) { firstIdx = i; break; }
     }
-    if (lastIdx === -1) return null;
-
-    const start = Math.max(0, lastIdx - 12);
-    const blockLines = lines.slice(start);
+    if (firstIdx === -1) return null;
+  
+    // vezmeme “okno” dolů (nejnovější blok + pár řádků)
+    const end = Math.min(lines.length, firstIdx + 14);
+    const blockLines = lines.slice(0, end); // bereme od TOPU, protože blok je nahoře
     const block = blockLines.join('\n');
-
-    const intel = { home: Object.create(null), away: Object.create(null), sent: Object.create(null) };
+  
+    const intel = {
+      home: Object.create(null),
+      away: Object.create(null),
+      sent: Object.create(null),
+      died: Object.create(null),
+      surv: Object.create(null),
+    };
+  
     for (const ln of blockLines) {
       if (ln.includes('Měl doma')) intel.home = kz_mergeUnitObjs(intel.home, kz_parseUnitsFromLine(ln));
       if (ln.includes('Měl mimo')) intel.away = kz_mergeUnitObjs(intel.away, kz_parseUnitsFromLine(ln));
       if (ln.includes('Poslal'))  intel.sent = kz_mergeUnitObjs(intel.sent, kz_parseUnitsFromLine(ln));
+      if (ln.includes('Padlo'))   intel.died = kz_mergeUnitObjs(intel.died, kz_parseUnitsFromLine(ln));     // včetně "Padlo (100%)"
+      if (ln.includes('Přežilo')) intel.surv = kz_mergeUnitObjs(intel.surv, kz_parseUnitsFromLine(ln));
     }
-
-    const revealed = kz_sumObj(intel.home) + kz_sumObj(intel.away) + kz_sumObj(intel.sent);
+  
+    // "Odhaleno" = max informace, kterou ten blok nese.
+    // DŮLEŽITÉ: když je 100% padlo a neukazuješ "Poslal", tak reveal se musí brát z "Padlo".
+    const revealed =
+      kz_sumObj(intel.home) +
+      kz_sumObj(intel.away) +
+      kz_sumObj(intel.sent) +
+      kz_sumObj(intel.died) +   // <-- fix pro 100% padlo i obecně
+      kz_sumObj(intel.surv);
+  
     return { blockText: block, intel, revealed };
   }
 
@@ -220,24 +241,33 @@ javascript:(function () {
 
   async function kz_decideMerge(villageId, newBlockText) {
     const existing = await kz_fetchVillageNoteText(villageId);
-    const old = kz_extractLastIntelBlock(existing);
-
+    const old = kz_extractMostRecentIntelBlock(existing);
+  
     const newLines = newBlockText.split(/\r?\n/);
     const newHomeLn = newLines.find(l => l.includes('Měl doma')) || '';
     const newAwayLn = newLines.find(l => l.includes('Měl mimo')) || '';
     const newSentLn = newLines.find(l => l.includes('Poslal')) || '';
-
+    const newDiedLn = newLines.find(l => l.includes('Padlo')) || '';
+    const newSurvLn = newLines.find(l => l.includes('Přežilo')) || '';
+  
     const newReveal =
       kz_sumObj(kz_parseUnitsFromLine(newHomeLn)) +
       kz_sumObj(kz_parseUnitsFromLine(newAwayLn)) +
-      kz_sumObj(kz_parseUnitsFromLine(newSentLn));
-
-    if (!old) return { mode: 'overwrite', note: newBlockText };
-    if (newReveal > (old.revealed || 0)) return { mode: 'overwrite', note: newBlockText };
-
-    // intel slabší → nepřepisovat, jen appendnout nový blok navrch
-    const merged = `${newBlockText}\n\n${existing}`.trim();
-    return { mode: 'append', note: merged };
+      kz_sumObj(kz_parseUnitsFromLine(newSentLn)) +
+      kz_sumObj(kz_parseUnitsFromLine(newDiedLn)) +  // <-- fix pro 100% padlo
+      kz_sumObj(kz_parseUnitsFromLine(newSurvLn));
+  
+    // když není nic -> prostě ulož nový blok
+    if (!existing || !existing.trim()) return { mode: 'overwrite', note: newBlockText };
+    if (!old) return { mode: 'append', note: `${newBlockText}\n\n${existing}`.trim() };
+  
+    // ✅ přepis jen když opravdu odhalíš víc než NEJNOVĚJŠÍ blok nahoře
+    if (newReveal > (old.revealed || 0)) {
+      return { mode: 'overwrite', note: newBlockText };
+    }
+  
+    // jinak jen přidej nový blok nahoru (zachováš intel i historii)
+    return { mode: 'append', note: `${newBlockText}\n\n${existing}`.trim() };
   }
 
   // ====== hlavička note (datum místo coord) ======
