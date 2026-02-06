@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.1-batch-sortByBattleTime" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.2-off-cleanup" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -35,16 +35,13 @@ javascript:(function () {
   const ME = GD?.player?.name ? String(GD.player.name) : '';
   const sitter = String(GD?.player?.sitter ?? '0') !== '0';
 
-  // --- units ordering / archers ---
   const hasArcher = Array.isArray(GD?.units) && GD.units.includes('archer');
   const UNIT_KEYS = hasArcher
     ? ['spear','sword','axe','archer','spy','light','marcher','heavy','ram','catapult']
     : ['spear','sword','axe','spy','light','heavy','ram','catapult'];
 
-  // farm per unit index (stejné jako originál)
   const FARM = hasArcher ? [1,1,1,1,2,4,5,6,5,8] : [1,1,1,2,4,6,5,8];
 
-  // --- report page check (detail reportu) ---
   function verifyReportPage() {
     const m = window.location.href.match(/screen=report|view=report|screen=report_view|mode=report/);
     if (!m) { UI.ErrorMessage(T.verifyReportPage, 5000); return false; }
@@ -52,26 +49,21 @@ javascript:(function () {
     return true;
   }
 
-  // ====== DETAIL: čas boje z tabulky ("Čas boje") ======
   function kz_getBattleDateText() {
     const rows = Array.from(document.querySelectorAll('#content_value table.vis tr'));
     for (const tr of rows) {
       const tds = tr.querySelectorAll('td');
       if (tds.length < 2) continue;
-
       const key = (tds[0].textContent || '').replace(/\s+/g, ' ').trim();
       if (key !== 'Čas boje') continue;
-
       const td = tds[1].cloneNode(true);
       td.querySelectorAll('span').forEach(s => s.remove());
-
       const raw = (td.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
       return raw || 'čas boje neznámý';
     }
     return 'čas boje neznámý';
   }
 
-  // ====== BATCH: detekce přehledu reportů ======
   function kz_isReportOverviewPage() {
     return !!document.querySelector('#report_list');
   }
@@ -79,33 +71,22 @@ javascript:(function () {
   function kz_getSelectedReportUrlsFromOverview() {
     const rows = Array.from(document.querySelectorAll('#report_list tr'));
     const out = [];
-
     for (const tr of rows) {
       const cb = tr.querySelector('input[type="checkbox"][name^="id_"]:checked');
       if (!cb) continue;
-
       const a = tr.querySelector('a.report-link[href*="view="]');
       if (!a) continue;
-
       const href = a.getAttribute('href');
       if (!href) continue;
-
       const url = href.startsWith('http') ? href : (location.origin + href);
       out.push(url);
     }
-
     return out;
   }
 
-  // ====== parsování času boje na timestamp (ms) ======
-  // podporuje:
-  // - "06.02.26 13:37:59"
-  // - "06.02.2026 16:29:11"
-  // - "06.02.2026 16:29" (bez sekund)
   function kz_parseBattleDateToMs(s) {
     if (!s) return NaN;
     const txt = String(s).trim();
-
     const m = txt.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
     if (!m) return NaN;
 
@@ -118,27 +99,21 @@ javascript:(function () {
 
     if (!Number.isFinite(dd) || !Number.isFinite(mm) || !Number.isFinite(yy) ||
         !Number.isFinite(hh) || !Number.isFinite(mi) || !Number.isFinite(ss)) return NaN;
-
-    // 2-místný rok -> 2000+
     if (yy < 100) yy = 2000 + yy;
 
-    // používáme lokální Date (stačí pro řazení a konzistentní pořadí)
     const d = new Date(yy, mm - 1, dd, hh, mi, ss, 0);
     const ms = d.getTime();
     return Number.isFinite(ms) ? ms : NaN;
   }
 
-  // ====== heuristika off/deff ======
   function calcOffDeffFarm(vec) {
     let off = 0, deff = 0;
     for (let i = 0; i < vec.length; i++) {
       const n = vec[i] || 0;
       if (hasArcher) {
-        // 0 spear,1 sword,2 axe,3 archer,4 spy,5 light,6 marcher,7 heavy,8 ram,9 catapult
         if (i === 2 || i === 5 || i === 6 || i === 8 || i === 9) off += n * FARM[i];
         if (i === 0 || i === 1 || i === 3 || i === 7) deff += n * FARM[i];
       } else {
-        // 0 spear,1 sword,2 axe,3 spy,4 light,5 heavy,6 ram,7 catapult
         if (i === 2 || i === 4 || i === 6 || i === 7) off += n * FARM[i];
         if (i === 0 || i === 1 || i === 5) deff += n * FARM[i];
       }
@@ -217,7 +192,6 @@ javascript:(function () {
     return { attName, defName, attId, defId, attCoord, defCoord };
   }
 
-  // ====== DROP-IN 2: parsování “odhalení” z existující poznámky ======
   function kz_parseUnitsFromLine(line) {
     const re = /\[unit\]([a-z]+)\[\/unit\]\s*([0-9]+)/gi;
     const out = Object.create(null);
@@ -268,8 +242,8 @@ javascript:(function () {
     for (const ln of blockLines) {
       if (ln.includes('Měl doma')) intel.home = kz_mergeUnitObjs(intel.home, kz_parseUnitsFromLine(ln));
       if (ln.includes('Měl mimo')) intel.away = kz_mergeUnitObjs(intel.away, kz_parseUnitsFromLine(ln));
-      if (ln.includes('Poslal'))  intel.sent = kz_mergeUnitObjs(intel.sent, kz_parseUnitsFromLine(ln));
-      if (ln.includes('Padlo'))   intel.died = kz_mergeUnitObjs(intel.died, kz_parseUnitsFromLine(ln));
+      if (ln.includes('Poslal')) intel.sent = kz_mergeUnitObjs(intel.sent, kz_parseUnitsFromLine(ln));
+      if (ln.includes('Padlo')) intel.died = kz_mergeUnitObjs(intel.died, kz_parseUnitsFromLine(ln));
       if (ln.includes('Přežilo')) intel.surv = kz_mergeUnitObjs(intel.surv, kz_parseUnitsFromLine(ln));
     }
 
@@ -289,6 +263,57 @@ javascript:(function () {
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const ta = doc.querySelector('textarea[name="note"], textarea#note, textarea');
     return ta ? (ta.value || ta.textContent || '') : '';
+  }
+
+  // --- NOVÉ: mazání zastaralé info "plná off bez ztrát" ---
+  function kz_getLineByLabel(blockText, label) {
+    if (!blockText) return '';
+    const lines = blockText.split(/\r?\n/);
+    return lines.find(l => l.includes(label)) || '';
+  }
+
+  function kz_isObjAllZero(obj) {
+    if (!obj) return true;
+    for (const k in obj) if ((obj[k] || 0) > 0) return false;
+    return true;
+  }
+
+  function kz_isObjEqual(a, b) {
+    const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
+    for (const k of keys) {
+      if ((a?.[k] || 0) !== (b?.[k] || 0)) return false;
+    }
+    return true;
+  }
+
+  function kz_blockLooksOff(blockText) {
+    return /\[b\]\s*\d+(?:[\.,]\d+)?\s+off\s*\[\/b\]/i.test(blockText || '');
+  }
+
+  function kz_isOffGoneTransition(oldBlockText, newBlockText) {
+    const oldSent = kz_parseUnitsFromLine(kz_getLineByLabel(oldBlockText, 'Poslal'));
+    const oldDied = kz_parseUnitsFromLine(kz_getLineByLabel(oldBlockText, 'Padlo'));
+    const oldSurv = kz_parseUnitsFromLine(kz_getLineByLabel(oldBlockText, 'Přežilo'));
+
+    const hadFullOffNoLoss =
+      kz_sumObj(oldSent) > 0 &&
+      kz_isObjAllZero(oldDied) &&
+      kz_isObjEqual(oldSent, oldSurv) &&
+      kz_blockLooksOff(oldBlockText);
+
+    if (!hadFullOffNoLoss) return false;
+
+    const newSent = kz_parseUnitsFromLine(kz_getLineByLabel(newBlockText, 'Poslal'));
+    const newDied = kz_parseUnitsFromLine(kz_getLineByLabel(newBlockText, 'Padlo'));
+    const newSurv = kz_parseUnitsFromLine(kz_getLineByLabel(newBlockText, 'Přežilo'));
+    const newDied100 = kz_parseUnitsFromLine(kz_getLineByLabel(newBlockText, 'Padlo (100%)'));
+
+    const newShowsLoss =
+      kz_sumObj(newDied) > 0 ||
+      kz_sumObj(newDied100) > 0 ||
+      (kz_sumObj(newSent) > 0 && kz_sumObj(newSurv) < kz_sumObj(newSent));
+
+    return newShowsLoss;
   }
 
   async function kz_decideMerge(villageId, newBlockText) {
@@ -311,6 +336,12 @@ javascript:(function () {
 
     if (!existing || !existing.trim()) return { mode: 'overwrite', note: newBlockText };
     if (!old) return { mode: 'append', note: `${newBlockText}\n\n${existing}`.trim() };
+
+    // Pokud starší info říká "plná off prošla bez ztrát" a nový report ukáže ztráty,
+    // starou informaci smažeme (overwrite).
+    if (kz_isOffGoneTransition(old.blockText, newBlockText)) {
+      return { mode: 'overwrite', note: newBlockText };
+    }
 
     if (newReveal > (old.revealed || 0)) {
       return { mode: 'overwrite', note: newBlockText };
@@ -341,7 +372,6 @@ javascript:(function () {
     return $.post(url, { note: noteText, village_id: villageId, h: GD.csrf });
   }
 
-  // ====== BATCH: parse report HTML ======
   function kz_parseVecFromUnitsTableDoc(doc, tableSel, rowIndex1based) {
     const row = doc.querySelector(`${tableSel} > tbody > tr:nth-child(${rowIndex1based})`);
     if (!row) return null;
@@ -386,7 +416,7 @@ javascript:(function () {
     let side = null;
     if (iAmDef && !iAmAtt) side = 'att';
     else if (iAmAtt && !iAmDef) side = 'def';
-    else return; // batch bez dialogů
+    else return;
 
     const hrefSel = side === 'att'
       ? '#attack_info_att > tbody > tr:nth-child(2) > td:nth-child(2) a[href*="screen=info_village"][href*="id="]'
@@ -453,7 +483,6 @@ javascript:(function () {
     });
   }
 
-  // ====== BATCH: načti a seřaď podle "Čas boje" (oldest -> newest) ======
   async function kz_runBatchFromOverview() {
     const urls = kz_getSelectedReportUrlsFromOverview();
     if (!urls.length) {
@@ -490,7 +519,6 @@ javascript:(function () {
       const $status = $box.find('#kz_batch_status');
       const delayMs = Math.max(200, parseInt($box.find('#kz_batch_delay').val(), 10) || 900);
 
-      // 1) načti HTML všech vybraných reportů a vytáhni "Čas boje" pro řazení
       $status.text(`Načítám reporty pro řazení podle času boje… (0/${urls.length})`);
 
       const items = [];
@@ -509,7 +537,7 @@ javascript:(function () {
             url: urls[i],
             html,
             battleDate,
-            ms: Number.isFinite(ms) ? ms : Number.POSITIVE_INFINITY, // když nejde přečíst, pošleme na konec
+            ms: Number.isFinite(ms) ? ms : Number.POSITIVE_INFINITY,
           });
         } catch (e) {
           console.error(e);
@@ -517,14 +545,11 @@ javascript:(function () {
         }
       }
 
-      // 2) seřaď od nejstaršího -> nejnovějšího
-      //    (protože do poznámky přidáváme nový blok NAHORU, takže poslední zpracovaný = nejnovější bude nahoře)
       items.sort((a, b) => {
         if (a.ms !== b.ms) return a.ms - b.ms;
         return String(a.url).localeCompare(String(b.url));
       });
 
-      // 3) zpracuj ve správném pořadí
       for (let i = 0; i < items.length; i++) {
         if (stop) { $status.text('Zastaveno.'); return; }
 
@@ -545,8 +570,7 @@ javascript:(function () {
     });
   }
 
-  // ====== původní detail mód ======
-  async function runForSide(side /* 'att' or 'def' */) {
+  async function runForSide(side) {
     const { attName, defName, attId, defId } = getNamesAndVillageIds();
 
     const iAmDef = (defName === ME);
@@ -612,12 +636,10 @@ javascript:(function () {
   }
 
   function start() {
-    // ✅ BATCH mód: přehled reportů (tabulka s checkboxy)
     if (kz_isReportOverviewPage()) {
       return kz_runBatchFromOverview();
     }
 
-    // ✅ DETAIL mód: jako doteď
     if (!verifyReportPage()) return;
 
     const { attName, defName } = getNamesAndVillageIds();
@@ -642,3 +664,4 @@ javascript:(function () {
 
   start();
 })();
+
