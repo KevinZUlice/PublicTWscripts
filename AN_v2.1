@@ -4,10 +4,12 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.1" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
+    noteOverwritten: "Poznámka přepsána (víc odhaleno)",
+    noteAppended: "Poznámka doplněna (intel zachován)",
     chooseSide: "Zapsat report ke které vesnici?",
     attacker: "Útočník",
     defender: "Obránce",
@@ -29,7 +31,6 @@ javascript:(function () {
   function verifyReportPage() {
     const m = window.location.href.match(/screen=report|view=report|screen=report_view|mode=report/);
     if (!m) { UI.ErrorMessage(T.verifyReportPage, 5000); return false; }
-    // DK většinou používá #attack_info_att / #attack_info_def jen v reportu
     if (!$('#attack_info_att').length || !$('#attack_info_def').length) { UI.ErrorMessage(T.verifyReportPage, 5000); return false; }
     return true;
   }
@@ -44,18 +45,39 @@ javascript:(function () {
     ? ['spear','sword','axe','archer','spy','light','marcher','heavy','ram','catapult']
     : ['spear','sword','axe','spy','light','heavy','ram','catapult'];
 
-  // farm per unit index (stejná myšlenka jako originál)
+  // farm per unit index (stejné jako originál)
   const FARM = hasArcher ? [1,1,1,1,2,4,5,6,5,8] : [1,1,1,2,4,6,5,8];
 
-  // indexy off/deff jednotek (heuristika)
+  // ====== DROP-IN 1: datum bitvy do hlavičky (místo coord) ======
+  function kz_getBattleDateText() {
+    // bereme hlavně "Oznámka vytvořeno / Upraveno" nebo text reportu
+    const txt = (document.body && (document.body.innerText || document.body.textContent)) ? (document.body.innerText || document.body.textContent) : '';
+
+    // "dnes v 14:32:59" / "včera v 14:32:59"
+    const m1 = txt.match(/\b(dnes|včera)\s+v\s+\d{1,2}:\d{2}:\d{2}\b/i);
+    if (m1) return m1[0].trim();
+
+    // "06.02.2026 14:32:59" nebo bez sekund
+    const m2 = txt.match(/\b\d{1,2}\.\d{1,2}\.\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?\b/);
+    if (m2) return m2[0].trim();
+
+    // zkus "Vytvořeno: dnes v ..."
+    const m3 = txt.match(/\bVytvořeno:\s*(dnes|včera)\s+v\s+\d{1,2}:\d{2}:\d{2}\b/i);
+    if (m3) return m3[0].replace(/^Vytvořeno:\s*/i,'').trim();
+
+    // fallback: lokální čas
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  // ====== heuristika off/deff ======
   function calcOffDeffFarm(vec) {
     let off = 0, deff = 0;
     for (let i = 0; i < vec.length; i++) {
       const n = vec[i] || 0;
-      // off: axe, light, marcher, ram, catapult (plus archer? ne)
-      // deff: spear, sword, archer, heavy, spy (spy ignorujeme do deff)
       if (hasArcher) {
-        // indexes: 0 spear,1 sword,2 axe,3 archer,4 spy,5 light,6 marcher,7 heavy,8 ram,9 catapult
+        // 0 spear,1 sword,2 axe,3 archer,4 spy,5 light,6 marcher,7 heavy,8 ram,9 catapult
         if (i === 2 || i === 5 || i === 6 || i === 8 || i === 9) off += n * FARM[i];
         if (i === 0 || i === 1 || i === 3 || i === 7) deff += n * FARM[i];
       } else {
@@ -67,12 +89,10 @@ javascript:(function () {
     return { off, deff };
   }
 
-  function classify(vec, contextLabel) {
+  function classify(vec) {
     const { off, deff } = calcOffDeffFarm(vec);
     if (!vec.some(v => v > 0)) return { text: T.noSurvivors, color: '#888888', score: 0.0, tag: 'mix' };
 
-    // “0.1..1.0” – orientačně, jen ať to vypadá jak originál
-    // off škálujeme na 15000 farm, deff na 20000 farm (můžeš později doladit)
     const offScore = Math.min(1, off / 15000);
     const deffScore = Math.min(1, deff / 20000);
 
@@ -88,14 +108,12 @@ javascript:(function () {
   }
 
   function parseVecFromUnitsTable(tableSel, rowIndex1based) {
-    // v reportu je to obvykle: tr(2)=Počet/Vesnice, tr(3)=Ztráty
     const tds = $(`${tableSel} > tbody > tr:nth-child(${rowIndex1based}) > td.unit-item`);
     if (!tds.length) return null;
     const vec = [];
     tds.each((i, el) => {
       if (i < UNIT_KEYS.length) vec[i] = parseInt((el.textContent || '0').trim(), 10) || 0;
     });
-    // doplň na délku
     while (vec.length < UNIT_KEYS.length) vec.push(0);
     return vec;
   }
@@ -108,6 +126,12 @@ javascript:(function () {
 
   function vecEqual(a, b) {
     for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] || 0) !== (b[i] || 0)) return false;
+    return true;
+  }
+
+  function isAllZero(vec) {
+    if (!vec) return true;
+    for (const n of vec) if ((n|0) !== 0) return false;
     return true;
   }
 
@@ -124,7 +148,6 @@ javascript:(function () {
     const attName = $('#attack_info_att > tbody > tr:nth-child(1) > th:nth-child(2) > a').text().trim();
     const defName = $('#attack_info_def > tbody > tr:nth-child(1) > th:nth-child(2) > a').text().trim();
 
-    // village id je v odkazu info_village&id=...
     const attHref = $('#attack_info_att > tbody > tr:nth-child(2) > td:nth-child(2) a[href*="screen=info_village"][href*="id="]').attr('href') || '';
     const defHref = $('#attack_info_def > tbody > tr:nth-child(2) > td:nth-child(2) a[href*="screen=info_village"][href*="id="]').attr('href') || '';
 
@@ -137,16 +160,95 @@ javascript:(function () {
     return { attName, defName, attId, defId, attCoord, defCoord };
   }
 
-  function buildNoteBlock(targetCoord, headerInfo, lines, exportCodeOptional) {
-    // headerInfo: {text,color,score,tag}
+  // ====== DROP-IN 2: parsování “odhalení” z existující poznámky ======
+  function kz_parseUnitsFromLine(line) {
+    const re = /\[unit\]([a-z]+)\[\/unit\]\s*([0-9]+)/gi;
+    const out = Object.create(null);
+    let m;
+    while ((m = re.exec(line))) {
+      out[m[1]] = (out[m[1]] || 0) + parseInt(m[2], 10);
+    }
+    return out;
+  }
+
+  function kz_sumObj(o) {
+    let s = 0;
+    for (const k in o) s += o[k] || 0;
+    return s;
+  }
+
+  function kz_mergeUnitObjs(a, b) {
+    const out = Object.assign(Object.create(null), a || {});
+    for (const k in (b || {})) out[k] = (out[k] || 0) + (b[k] || 0);
+    return out;
+  }
+
+  function kz_extractLastIntelBlock(noteText) {
+    if (!noteText) return null;
+    const lines = noteText.split(/\r?\n/);
+
+    const markers = ['Měl doma', 'Měl mimo', 'Poslal', 'Padlo', 'Přežilo'];
+    let lastIdx = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const L = lines[i];
+      if (markers.some(m => L.includes(m))) { lastIdx = i; break; }
+    }
+    if (lastIdx === -1) return null;
+
+    const start = Math.max(0, lastIdx - 12);
+    const blockLines = lines.slice(start);
+    const block = blockLines.join('\n');
+
+    const intel = { home: Object.create(null), away: Object.create(null), sent: Object.create(null) };
+    for (const ln of blockLines) {
+      if (ln.includes('Měl doma')) intel.home = kz_mergeUnitObjs(intel.home, kz_parseUnitsFromLine(ln));
+      if (ln.includes('Měl mimo')) intel.away = kz_mergeUnitObjs(intel.away, kz_parseUnitsFromLine(ln));
+      if (ln.includes('Poslal'))  intel.sent = kz_mergeUnitObjs(intel.sent, kz_parseUnitsFromLine(ln));
+    }
+
+    const revealed = kz_sumObj(intel.home) + kz_sumObj(intel.away) + kz_sumObj(intel.sent);
+    return { blockText: block, intel, revealed };
+  }
+
+  async function kz_fetchVillageNoteText(villageId) {
+    const url = `game.php?screen=info_village&id=${encodeURIComponent(villageId)}`;
+    const html = await (await fetch(url, { credentials: 'include' })).text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const ta = doc.querySelector('textarea[name="note"], textarea#note, textarea');
+    return ta ? (ta.value || ta.textContent || '') : '';
+  }
+
+  async function kz_decideMerge(villageId, newBlockText) {
+    const existing = await kz_fetchVillageNoteText(villageId);
+    const old = kz_extractLastIntelBlock(existing);
+
+    const newLines = newBlockText.split(/\r?\n/);
+    const newHomeLn = newLines.find(l => l.includes('Měl doma')) || '';
+    const newAwayLn = newLines.find(l => l.includes('Měl mimo')) || '';
+    const newSentLn = newLines.find(l => l.includes('Poslal')) || '';
+
+    const newReveal =
+      kz_sumObj(kz_parseUnitsFromLine(newHomeLn)) +
+      kz_sumObj(kz_parseUnitsFromLine(newAwayLn)) +
+      kz_sumObj(kz_parseUnitsFromLine(newSentLn));
+
+    if (!old) return { mode: 'overwrite', note: newBlockText };
+    if (newReveal > (old.revealed || 0)) return { mode: 'overwrite', note: newBlockText };
+
+    // intel slabší → nepřepisovat, jen appendnout nový blok navrch
+    const merged = `${newBlockText}\n\n${existing}`.trim();
+    return { mode: 'append', note: merged };
+  }
+
+  // ====== hlavička note (datum místo coord) ======
+  function buildNoteBlock(headerInfo, lines, exportCodeOptional) {
     const scoreTxt = (headerInfo.score ?? 0).toFixed(1);
-    const head = `[b][coord]${targetCoord}[/coord][/b] | [color=${headerInfo.color}][b]${scoreTxt} ${headerInfo.tag}[/b][/color] | [i]${headerInfo.text}[/i]`;
-    // export kód nechávám vypnutý (ty chceš vlastní řádky), ale můžeš zapnout později:
+    const battleDate = kz_getBattleDateText();
+    const head = `[b]${battleDate}[/b] | [color=${headerInfo.color}][b]${scoreTxt} ${headerInfo.tag}[/b][/color] | [i]${headerInfo.text}[/i]`;
     return `${head}\n${lines.join('\n')}${exportCodeOptional ? `\n\n${exportCodeOptional}` : ''}`;
   }
 
   function apiNoteEdit(villageId, noteText) {
-    // stejný endpoint jako originál
     const base = `https://${location.hostname}/game.php?village=${GD.village.id}&screen=api&ajaxaction=village_note_edit`;
     const url = sitter
       ? `${base}&t=${GD.player.id}`
@@ -155,23 +257,18 @@ javascript:(function () {
     return $.post(url, { note: noteText, village_id: villageId, h: GD.csrf });
   }
 
-  function runForSide(side /* 'att' or 'def' */) {
-    const { attName, defName, attId, defId, attCoord, defCoord } = getNamesAndVillageIds();
+  async function runForSide(side /* 'att' or 'def' */) {
+    const { attName, defName, attId, defId } = getNamesAndVillageIds();
 
     const iAmDef = (defName === ME);
     const iAmAtt = (attName === ME);
 
-    // Když explicitně zvolíš side, tak target = side villageId/coords
     const targetId = side === 'att' ? attId : defId;
-    const targetCoord = side === 'att' ? attCoord : defCoord;
 
-    // Troop tabulky:
-    // attacker units: #attack_info_att_units
-    // defender units: #attack_info_def_units
     const tabSel = side === 'att' ? '#attack_info_att_units' : '#attack_info_def_units';
 
-    const row2 = parseVecFromUnitsTable(tabSel, 2); // Počet / Vesnice
-    const row3 = parseVecFromUnitsTable(tabSel, 3); // Ztráty
+    const row2 = parseVecFromUnitsTable(tabSel, 2);
+    const row3 = parseVecFromUnitsTable(tabSel, 3);
     if (!row2 || !row3) {
       UI.ErrorMessage('KZ: Nenašel jsem řádky jednotek (Počet/Ztráty).', 4000);
       return;
@@ -181,7 +278,6 @@ javascript:(function () {
     // mimo vesnici (jen u obránce, pokud existuje špeh tabulka)
     let away = null;
     if (side === 'def' && $('#attack_spy_away').length) {
-      // v #attack_spy_away je obvykle: tr(2) > td > table ... tr(2) > td (čísla)
       const tds = $('#attack_spy_away > tbody > tr:nth-child(2) > td table tbody tr:nth-child(2) > td');
       if (tds.length) {
         away = [];
@@ -190,42 +286,44 @@ javascript:(function () {
       }
     }
 
-    // Jaké řádky chceme:
-    // - když BRÁNÍŠ a zapisuješ k enemy útočníkovi → poslal/padlo/přežilo s 100% zkratkou
-    // - když ÚTOČÍŠ a zapisuješ k enemy obránci → měl doma/padlo/přežilo + mimo
     const lines = [];
     let headerVecForClass = row2;
 
     if (iAmDef && side === 'att') {
       // bráním → enemy attacker
       if (vecEqual(row2, row3)) {
-        lines.push(fmtLine(T.died100, row3));
+        if (!isAllZero(row3)) lines.push(fmtLine(T.died100, row3));
       } else {
-        lines.push(fmtLine(T.sent, row2));
-        lines.push(fmtLine(T.died, row3));
-        lines.push(fmtLine(T.survived, surv));
+        if (!isAllZero(row2)) lines.push(fmtLine(T.sent, row2));
+        if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
+        if (!isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
       }
     } else if (iAmAtt && side === 'def') {
       // útočím → enemy defender
-      lines.push(fmtLine(T.home, row2));
-      lines.push(fmtLine(T.died, row3));
-      lines.push(fmtLine(T.survived, surv));
-      if (away) lines.push(fmtLine(T.away, away));
-      headerVecForClass = away ? vecSub(vecSub(row2, [0,0,0,0,0,0,0,0,0,0]), [0,0,0,0,0,0,0,0,0,0]) : row2; // jen aby byl definovaný
+      if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
+      if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
+      if (!isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
+      if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
+      headerVecForClass = row2;
     } else {
-      // nejednoznačné → použij “univerzální”
-      lines.push(fmtLine('Stav', row2));
-      lines.push(fmtLine(T.died, row3));
-      lines.push(fmtLine(T.survived, surv));
-      if (away) lines.push(fmtLine(T.away, away));
+      if (!isAllZero(row2)) lines.push(fmtLine('Stav', row2));
+      if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
+      if (!isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
+      if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
     }
 
-    const headerInfo = classify(headerVecForClass, 'main');
-    const note = buildNoteBlock(targetCoord || '???|???', headerInfo, lines, null);
+    const headerInfo = classify(headerVecForClass);
+    const newBlock = buildNoteBlock(headerInfo, lines, null);
 
-    apiNoteEdit(targetId, note)
-      .done(() => UI.SuccessMessage(T.noteCreated, 2500))
-      .fail(() => UI.ErrorMessage('KZ: Nepovedlo se uložit poznámku (API).', 4000));
+    try {
+      const decided = await kz_decideMerge(targetId, newBlock);
+      apiNoteEdit(targetId, decided.note)
+        .done(() => UI.SuccessMessage(decided.mode === 'overwrite' ? T.noteOverwritten : T.noteAppended, 2500))
+        .fail(() => UI.ErrorMessage('KZ: Nepovedlo se uložit poznámku (API).', 4000));
+    } catch (e) {
+      console.error(e);
+      UI.ErrorMessage('KZ: Chyba při čtení existující poznámky / merge.', 4000);
+    }
   }
 
   function start() {
@@ -235,11 +333,9 @@ javascript:(function () {
     const iAmDef = (defName === ME);
     const iAmAtt = (attName === ME);
 
-    // Když je jasné, co jsi, udělej to automaticky:
-    if (iAmDef && !iAmAtt) return runForSide('att'); // bráním → píš k útočníkovi
-    if (iAmAtt && !iAmDef) return runForSide('def'); // útočím → píš k obránci
+    if (iAmDef && !iAmAtt) return runForSide('att');
+    if (iAmAtt && !iAmDef) return runForSide('def');
 
-    // jinak dialog (stejně jako originál)
     const box = $('<div class="center"></div>').append(
       $('<div class="center"></div>').text(T.chooseSide),
       $('<div class="center" style="margin-top:10px;"></div>').append(
