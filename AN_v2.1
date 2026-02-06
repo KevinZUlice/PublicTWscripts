@@ -50,25 +50,27 @@ javascript:(function () {
 
   // ====== DROP-IN 1: datum bitvy do hlavičky (místo coord) ======
   function kz_getBattleDateText() {
-    // bereme hlavně "Oznámka vytvořeno / Upraveno" nebo text reportu
-    const txt = (document.body && (document.body.innerText || document.body.textContent)) ? (document.body.innerText || document.body.textContent) : '';
-
-    // "dnes v 14:32:59" / "včera v 14:32:59"
-    const m1 = txt.match(/\b(dnes|včera)\s+v\s+\d{1,2}:\d{2}:\d{2}\b/i);
-    if (m1) return m1[0].trim();
-
-    // "06.02.2026 14:32:59" nebo bez sekund
-    const m2 = txt.match(/\b\d{1,2}\.\d{1,2}\.\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?\b/);
-    if (m2) return m2[0].trim();
-
-    // zkus "Vytvořeno: dnes v ..."
-    const m3 = txt.match(/\bVytvořeno:\s*(dnes|včera)\s+v\s+\d{1,2}:\d{2}:\d{2}\b/i);
-    if (m3) return m3[0].replace(/^Vytvořeno:\s*/i,'').trim();
-
-    // fallback: lokální čas
-    const d = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    // Najdi řádek v tabulce reportu, kde je vlevo "Čas boje"
+    const rows = Array.from(document.querySelectorAll('#content_value table.vis tr'));
+    for (const tr of rows) {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < 2) continue;
+  
+      const key = (tds[0].textContent || '').replace(/\s+/g, ' ').trim();
+      if (key !== 'Čas boje') continue;
+  
+      // vezmi jen text z druhé buňky, ale bez toho ":452" span
+      const td = tds[1].cloneNode(true);
+      td.querySelectorAll('span').forEach(s => s.remove());
+  
+      const raw = (td.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+      // raw = "06.02.26 13:37:59"
+  
+      // u tebe je 2-místný rok -> necháme tak jak je
+      return raw || 'čas boje neznámý';
+    }
+  
+    return 'čas boje neznámý';
   }
 
   // ====== heuristika off/deff ======
