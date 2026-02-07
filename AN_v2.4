@@ -44,8 +44,10 @@ javascript:(function () {
 
   // Jemné doladění merge logiky mezi světy
   const KZ_MERGE_TUNING = {
-    GAP_HOURS: 12,           // max čas mezi reporty, aby to byl stále 'stejný kontext armády'
-    SAME_ARMY_OVERLAP: 0.65, // 0..1, jak moc se musí armády překrývat, aby byly brány jako stejná armáda Vysvětlení: vyšší hodnota, méně mazání a nižší hodnota (např. 0.65) = agresivnější, více mazání.
+    GAP_HOURS: 12,                // max čas mezi reporty, aby to byl stále 'stejný kontext armády'
+    SAME_ARMY_OVERLAP: 0.75,      // 0..1, jak moc se musí armády překrývat, aby byly brány jako stejná armáda
+    OLD_SURVIVED_MIN_RATIO: 0.90, // starý report: min podíl přeživších z poslaných, aby to bylo 'off prošla'
+    OLD_LOSS_MAX_RATIO: 0.15,     // starý report: max podíl ztrát, aby to stále byla průchozí off
   };
 
   function verifyReportPage() {
@@ -278,19 +280,6 @@ javascript:(function () {
     return lines.find(l => l.includes(label)) || '';
   }
 
-  function kz_isObjAllZero(obj) {
-    if (!obj) return true;
-    for (const k in obj) if ((obj[k] || 0) > 0) return false;
-    return true;
-  }
-
-  function kz_isObjEqual(a, b) {
-    const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
-    for (const k of keys) {
-      if ((a?.[k] || 0) !== (b?.[k] || 0)) return false;
-    }
-    return true;
-  }
 
   function kz_blockLooksOff(blockText) {
     return /\[b\]\s*\d+(?:[\.,]\d+)?\s+off\s*\[\/b\]/i.test(blockText || '');
@@ -337,13 +326,20 @@ javascript:(function () {
     const oldDied = kz_parseUnitsFromLine(kz_getLineByLabel(oldBlockText, 'Padlo'));
     const oldSurv = kz_parseUnitsFromLine(kz_getLineByLabel(oldBlockText, 'Přežilo'));
 
-    const hadFullOffNoLoss =
-      kz_sumObj(oldSent) > 0 &&
-      kz_isObjAllZero(oldDied) &&
-      kz_isObjEqual(oldSent, oldSurv) &&
-      kz_blockLooksOff(oldBlockText);
+    const oldSentSum = kz_sumObj(oldSent);
+    const oldDiedSum = kz_sumObj(oldDied);
+    const oldSurvSum = kz_sumObj(oldSurv);
 
-    if (!hadFullOffNoLoss) return false;
+    const oldLossRatio = oldSentSum > 0 ? (oldDiedSum / oldSentSum) : 1;
+    const oldSurvRatio = oldSentSum > 0 ? (oldSurvSum / oldSentSum) : 0;
+
+    const hadStrongOffSurvival =
+      oldSentSum > 0 &&
+      kz_blockLooksOff(oldBlockText) &&
+      oldSurvRatio >= KZ_MERGE_TUNING.OLD_SURVIVED_MIN_RATIO &&
+      oldLossRatio <= KZ_MERGE_TUNING.OLD_LOSS_MAX_RATIO;
+
+    if (!hadStrongOffSurvival) return false;
 
     const newSent = kz_parseUnitsFromLine(kz_getLineByLabel(newBlockText, 'Poslal'));
     const newDied = kz_parseUnitsFromLine(kz_getLineByLabel(newBlockText, 'Padlo'));
@@ -358,8 +354,9 @@ javascript:(function () {
     if (!newShowsLoss) return false;
 
     // Opatrnost proti falešným přepisům:
+    // - starý report musí vypadat jako 'off prošla' (vysoké přežití, nízké ztráty),
     // - musí jít o relativně čerstvější boj (typicky stejná vlna),
-    // - armáda musí vypadat jako stejná (overlap podle KZ_MERGE_TUNING.SAME_ARMY_OVERLAP).
+    // - armáda musí vypadat jako stejná (overlap podle KZ_MERGE_TUNING.SAME_ARMY_OVERLAP),
     const oldMs = kz_parseBlockDateToMs(oldBlockText);
     const newMs = kz_parseBlockDateToMs(newBlockText);
     if (Number.isFinite(oldMs) && Number.isFinite(newMs)) {
