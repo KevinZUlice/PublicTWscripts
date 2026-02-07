@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.2-off-cleanup" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.3-visual-spy-balance" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -18,6 +18,7 @@ javascript:(function () {
     defensive: "Deff",
     probOffensive: "Spíš off",
     probDefensive: "Spíš deff",
+    spyDefensive: "Deff/špeh",
     noSurvivors: "Nic nepřežilo",
     sent: "Poslal",
     died: "Padlo",
@@ -135,6 +136,17 @@ javascript:(function () {
     const { off, deff } = calcOffDeffFarm(vec);
     if (!vec.some(v => v > 0)) return { text: T.noSurvivors, color: '#888888', score: 0.0, tag: 'mix' };
 
+    const spyIdx = hasArcher ? 4 : 3;
+    const spyCount = vec[spyIdx] || 0;
+    const total = vec.reduce((a, b) => a + (b || 0), 0);
+    const nonSpy = Math.max(0, total - spyCount);
+
+    // anti-falešná "off" klasifikace pro čistě/hlavně špehovací reporty
+    if (spyCount >= 200 && spyCount >= nonSpy * 1.2 && off < 2500) {
+      const score = Math.round(Math.min(1, spyCount / 4000) * 10) / 10;
+      return { text: T.spyDefensive, color: '#2b7bb9', score, tag: 'deff' };
+    }
+
     const offScore = Math.min(1, off / 15000);
     const deffScore = Math.min(1, deff / 20000);
 
@@ -177,13 +189,19 @@ javascript:(function () {
     return true;
   }
 
+  function kz_fmtLabelStyled(label) {
+    if (label === T.died || label === T.died100) return `[color=#d32f2f]🔴 ${label}[/color]`;
+    if (label === T.survived) return `[color=#2e7d32]🟢 ${label}[/color]`;
+    return label;
+  }
+
   function fmtLine(label, vec) {
     const parts = [];
     for (let i = 0; i < UNIT_KEYS.length; i++) {
       const n = vec[i] || 0;
       if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${n}`);
     }
-    return `[b]${label}:[/b] ${parts.length ? parts.join(' ') : '—'}`;
+    return `[b]${kz_fmtLabelStyled(label)}:[/b] ${parts.length ? parts.join(' ') : '—'}`;
   }
 
   function getNamesAndVillageIds() {
