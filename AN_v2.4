@@ -48,6 +48,8 @@ javascript:(function () {
     SAME_ARMY_OVERLAP: 0.75,      // 0..1, jak moc se musí armády překrývat, aby byly brány jako stejná armáda
     OLD_SURVIVED_MIN_RATIO: 0.90, // starý report: min podíl přeživších z poslaných, aby to bylo 'off prošla'
     OLD_LOSS_MAX_RATIO: 0.15,     // starý report: max podíl ztrát, aby to stále byla průchozí off
+    MIN_OLD_SENT_TOTAL: 1000,     // cleanup řešíme jen u větších armád (omezí falešné mazání malých útoků)
+    REQUIRE_NEW_OFF_TAG: true,    // nový report musí být také "off", jinak starý block nemažeme
   };
 
   function verifyReportPage() {
@@ -340,6 +342,9 @@ javascript:(function () {
       oldLossRatio <= KZ_MERGE_TUNING.OLD_LOSS_MAX_RATIO;
 
     if (!hadStrongOffSurvival) return false;
+    if (oldSentSum < KZ_MERGE_TUNING.MIN_OLD_SENT_TOTAL) return false;
+
+    if (KZ_MERGE_TUNING.REQUIRE_NEW_OFF_TAG && !kz_blockLooksOff(newBlockText)) return false;
 
     const newSent = kz_parseUnitsFromLine(kz_getLineByLabel(newBlockText, 'Poslal'));
     const newDied = kz_parseUnitsFromLine(kz_getLineByLabel(newBlockText, 'Padlo'));
