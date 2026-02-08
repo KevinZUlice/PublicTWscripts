@@ -194,6 +194,7 @@ javascript:(function () {
   }
 
   function kz_fmtLabelStyled(label) {
+    if (label === T.home) return `[color=#1976d2]🔵 ${label}[/color]`;
     if (label === T.died || label === T.died100) return `[color=#d32f2f]🔴 ${label}[/color]`;
     if (label === T.survived) return `[color=#2e7d32]🟢 ${label}[/color]`;
     return label;
@@ -417,44 +418,10 @@ javascript:(function () {
   async function kz_decideMerge(villageId, newBlockText) {
     const existing = await kz_fetchVillageNoteText(villageId);
 
-    const newLines = newBlockText.split(/\r?\n/);
-    const newHomeLn = newLines.find(l => l.includes('Měl doma')) || '';
-    const newAwayLn = newLines.find(l => l.includes('Měl mimo')) || '';
-    const newSentLn = newLines.find(l => l.includes('Poslal')) || '';
-    const newDiedLn = newLines.find(l => l.includes('Padlo')) || '';
-    const newSurvLn = newLines.find(l => l.includes('Přežilo')) || '';
-
-    const newReveal =
-      kz_sumObj(kz_parseUnitsFromLine(newHomeLn)) +
-      kz_sumObj(kz_parseUnitsFromLine(newAwayLn)) +
-      kz_sumObj(kz_parseUnitsFromLine(newSentLn)) +
-      kz_sumObj(kz_parseUnitsFromLine(newDiedLn)) +
-      kz_sumObj(kz_parseUnitsFromLine(newSurvLn));
-
+    // Zjednodušený režim: držíme vždy jen poslední (nejnovější) záznam,
+    // aby v poznámce nevznikal mix více historických bloků.
     if (!existing || !existing.trim()) return { mode: 'overwrite', note: newBlockText };
-    const cleaned = kz_removeStaleFullOffBlocks(existing, newBlockText);
-    const baseNote = cleaned.note;
-    const baseOld = kz_extractMostRecentIntelBlock(baseNote);
-
-    if (cleaned.removed > 0 && !baseNote) {
-      return { mode: 'overwrite', note: newBlockText };
-    }
-
-    if (!baseOld) {
-      return { mode: cleaned.removed > 0 ? 'overwrite' : 'append', note: `${newBlockText}${baseNote ? `\n\n${baseNote}` : ''}`.trim() };
-    }
-
-    // Když jsme při čištění odebrali starý "full off bez ztrát" blok,
-    // preferujeme přepis výsledku (nový blok + očištěný zbytek).
-    if (cleaned.removed > 0) {
-      return { mode: 'overwrite', note: `${newBlockText}\n\n${baseNote}`.trim() };
-    }
-
-    if (newReveal > (baseOld.revealed || 0)) {
-      return { mode: 'overwrite', note: newBlockText };
-    }
-
-    return { mode: 'append', note: `${newBlockText}\n\n${baseNote}`.trim() };
+    return { mode: 'overwrite', note: newBlockText };
   }
 
   function buildNoteBlock(headerInfo, lines, exportCodeOptional, attackSize) {
@@ -818,4 +785,3 @@ javascript:(function () {
 
   start();
 })();
-
