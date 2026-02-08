@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.0-no-defender-meta" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.1-attack-on-and-multiline-upgrades" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -29,6 +29,7 @@ javascript:(function () {
     upgrades: "Vylepšení",
     siegeDamage: "Škoda obléháním",
     noDefenderUnits: "Obránce: jednotky nezjištěny",
+    attackOn: "Útok na",
     died100: "Padlo (100%)",
   };
 
@@ -569,7 +570,16 @@ javascript:(function () {
 
   function fmtMetaLine(label, value, color) {
     const lbl = color ? `[color=${color}]${label}[/color]` : label;
+    if (value === null) return `[b]${lbl}:[/b]`;
     return `[b]${lbl}:[/b] ${value || '—'}`;
+  }
+
+  function kz_pushDefMetaLines(lines, defMeta) {
+    if (defMeta.upgrades.length) {
+      lines.push(fmtMetaLine(T.upgrades, null, '#6a1b9a'));
+      for (const up of defMeta.upgrades) lines.push(`- ${up}`);
+    }
+    for (const s of defMeta.siege) lines.push(fmtMetaLine(T.siegeDamage, s, '#ef6c00'));
   }
 
   function kz_extractDefenderMetaDoc(doc) {
@@ -648,6 +658,7 @@ javascript:(function () {
         if (surv && !isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
       }
     } else if (iAmAtt && side === 'def') {
+      lines.push(fmtMetaLine(T.attackOn, defName || T.unknown, '#455a64'));
       const isSpy = kz_isSpyReportDoc(doc);
       if (isSpy) {
         if (row2 && !isAllZero(row2)) lines.push(fmtLine(T.home, row2));
@@ -660,15 +671,13 @@ javascript:(function () {
         if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
       } else if (attRow2 && attRow3) {
         const mySurv = vecSub(attRow2, attRow3);
-        if (!isAllZero(attRow2)) lines.push(fmtLine(T.sent, attRow2));
         if (!isAllZero(attRow3)) lines.push(fmtLine(T.died, attRow3));
         if (!isAllZero(mySurv)) lines.push(fmtLine(T.survived, mySurv));
         lines.push(fmtMetaLine(T.noDefenderUnits, '—', '#616161'));
         headerVecForClass = attRow2;
       }
 
-      if (defMeta.upgrades.length) lines.push(fmtMetaLine(T.upgrades, defMeta.upgrades.join(' | '), '#6a1b9a'));
-      for (const s of defMeta.siege) lines.push(fmtMetaLine(T.siegeDamage, s, '#ef6c00'));
+      kz_pushDefMetaLines(lines, defMeta);
 
       headerVecForClass = headerVecForClass || row2 || attRow2 || [];
     }
@@ -819,6 +828,7 @@ javascript:(function () {
         if (surv && !isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
       }
     } else if (iAmAtt && side === 'def') {
+      lines.push(fmtMetaLine(T.attackOn, defName || T.unknown, '#455a64'));
       const isSpy = kz_isSpyReportPage();
       if (isSpy) {
         if (row2 && !isAllZero(row2)) lines.push(fmtLine(T.home, row2));
@@ -831,15 +841,13 @@ javascript:(function () {
         if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
       } else if (attRow2 && attRow3) {
         const mySurv = vecSub(attRow2, attRow3);
-        if (!isAllZero(attRow2)) lines.push(fmtLine(T.sent, attRow2));
         if (!isAllZero(attRow3)) lines.push(fmtLine(T.died, attRow3));
         if (!isAllZero(mySurv)) lines.push(fmtLine(T.survived, mySurv));
         lines.push(fmtMetaLine(T.noDefenderUnits, '—', '#616161'));
         headerVecForClass = attRow2;
       }
 
-      if (defMeta.upgrades.length) lines.push(fmtMetaLine(T.upgrades, defMeta.upgrades.join(' | '), '#6a1b9a'));
-      for (const s of defMeta.siege) lines.push(fmtMetaLine(T.siegeDamage, s, '#ef6c00'));
+      kz_pushDefMetaLines(lines, defMeta);
 
       headerVecForClass = headerVecForClass || row2 || attRow2 || [];
     } else {
@@ -898,3 +906,4 @@ javascript:(function () {
 
   start();
 })();
+
