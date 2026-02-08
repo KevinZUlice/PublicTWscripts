@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.8-force-off-when-wall-meta" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.9-latest-wall-damage-priority" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -517,6 +517,12 @@ javascript:(function () {
 
     const oldWall = kz_extractWallToLevel(existing);
     const newWall = kz_extractWallToLevel(note);
+
+    // PRIORITA #1: pokud nový report je novější v časové ose a obsahuje škodu na hradbách,
+    // vždy přepiš (i kdyby měl jinak nižší score).
+    if (Number.isFinite(newWall) && Number.isFinite(newMs) && (!Number.isFinite(oldMs) || newMs >= oldMs)) {
+      return { mode: 'overwrite', note };
+    }
 
     // priorita: nižší výsledný level hradeb je cennější než čistý objem útoku
     if (Number.isFinite(newWall) && (!Number.isFinite(oldWall) || newWall < oldWall)) {
@@ -1047,6 +1053,7 @@ javascript:(function () {
 
   start();
 })();
+
 
 
 
