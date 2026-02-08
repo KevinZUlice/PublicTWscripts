@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.7-spy-multi-line" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.8-force-multiline-spy" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -430,10 +430,17 @@ javascript:(function () {
     return { note: kept.join('\n\n').trim(), removed };
   }
 
+  function kz_normalizeNoteBlock(text) {
+    if (!text) return text;
+    // hard-fix starého inline formátu "Měl doma ... | Měl mimo ..."
+    return String(text)
+      .replace(/\s+\|\s+(\[b\](?:\[color=[^\]]+\])?Měl mimo(?:\[\/color\])?:\[\/b\])/g, '\n$1');
+  }
+
   async function kz_decideMerge(villageId, newBlockText) {
     // Hard overwrite režim: vždy vrátíme jen nový blok.
     // Záměrně bez čtení existující poznámky, aby nemohlo dojít k přimíchání starých dat.
-    return { mode: 'overwrite', note: newBlockText };
+    return { mode: 'overwrite', note: kz_normalizeNoteBlock(newBlockText) };
   }
 
   function buildNoteBlock(headerInfo, lines, exportCodeOptional, attackSize) {
@@ -799,5 +806,6 @@ javascript:(function () {
 
   start();
 })();
+
 
 
