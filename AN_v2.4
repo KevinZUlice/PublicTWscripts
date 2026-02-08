@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.4-attack-size-fallback-from-sent" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.5-use-attack-icons" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -35,6 +35,18 @@ javascript:(function () {
   const UI = window.UI;
   const Dialog = window.Dialog;
   const Timing = window.Timing;
+
+
+  const KZ_ATTACK_ICON = {
+    small: 'https://dscs.innogamescdn.com/asset/985df5a4/graphic/command/attack_small.webp',
+    medium: 'https://dscs.innogamescdn.com/asset/985df5a4/graphic/command/attack_medium.webp',
+    large: 'https://dscs.innogamescdn.com/asset/985df5a4/graphic/command/attack_large.webp',
+  };
+
+  function kz_attackIconTag(sizeKey) {
+    const src = KZ_ATTACK_ICON[sizeKey] || '';
+    return src ? `[img]${src}[/img]` : '';
+  }
 
   const GD = window.game_data;
   const ME = GD?.player?.name ? String(GD.player.name) : '';
@@ -509,9 +521,9 @@ javascript:(function () {
     const img = doc.querySelector('img[src*="attack_large"], img[src*="attack_medium"], img[src*="attack_small"], img[data-title*="Velký útok"], img[data-title*="Střední útok"], img[data-title*="Malý útok"]');
     const src = img?.getAttribute('src') || '';
     const title = img?.getAttribute('data-title') || img?.getAttribute('title') || '';
-    if (src.includes('attack_large') || /Velký\s+útok/i.test(title)) return '🪓L';
-    if (src.includes('attack_medium') || /Střední\s+útok/i.test(title)) return '🪓M';
-    if (src.includes('attack_small') || /Malý\s+útok/i.test(title)) return '🪓S';
+    if (src.includes('attack_large') || /Velký\s+útok/i.test(title)) return kz_attackIconTag('large');
+    if (src.includes('attack_medium') || /Střední\s+útok/i.test(title)) return kz_attackIconTag('medium');
+    if (src.includes('attack_small') || /Malý\s+útok/i.test(title)) return kz_attackIconTag('small');
     return '';
   }
 
@@ -524,9 +536,9 @@ javascript:(function () {
     if (!sentVec) return '';
     let total = 0;
     for (const n of sentVec) total += (n || 0);
-    if (total > 5000) return '🪓L';
-    if (total > 1000) return '🪓M';
-    if (total > 0) return '🪓S';
+    if (total > 5000) return kz_attackIconTag('large');
+    if (total > 1000) return kz_attackIconTag('medium');
+    if (total > 0) return kz_attackIconTag('small');
     return '';
   }
 
@@ -947,6 +959,7 @@ javascript:(function () {
 
   start();
 })();
+
 
 
 
