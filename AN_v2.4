@@ -4,12 +4,13 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.5-use-attack-icons" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.6-value-aware-merge" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
     noteOverwritten: "Poznámka přepsána (víc odhaleno)",
     noteAppended: "Poznámka doplněna (intel zachován)",
+    noteSkipped: "Poznámka přeskočena (stávající má vyšší hodnotu)",
     chooseSide: "Zapsat report ke které vesnici?",
     attacker: "Útočník",
     defender: "Obránce",
@@ -454,10 +455,55 @@ javascript:(function () {
       .replace(/\s+\|\s+(\[b\](?:\[color=[^\]]+\])?Měl mimo(?:\[\/color\])?:\[\/b\])/g, '\n$1');
   }
 
+  function kz_attackSizeValue(noteText) {
+    const t = String(noteText || '');
+    if (t.includes('attack_large.webp')) return 3000;
+    if (t.includes('attack_medium.webp')) return 1500;
+    if (t.includes('attack_small.webp')) return 700;
+    return 0;
+  }
+
+  function kz_noteIntelValue(noteText) {
+    const txt = String(noteText || '');
+    const lines = txt.split(/\r?\n/);
+    let value = kz_attackSizeValue(txt);
+
+    for (const ln of lines) {
+      if (ln.includes('Vylepšení')) value += 1200;
+      if (ln.includes('Škoda obléháním') || ln.includes('Škoda vzniklá')) value += 2000;
+      if (ln.includes('Obránce: jednotky nezjištěny')) value += 400;
+      if (ln.includes('Měl doma')) value += kz_sumObj(kz_parseUnitsFromLine(ln));
+      if (ln.includes('Měl mimo')) value += kz_sumObj(kz_parseUnitsFromLine(ln));
+      if (ln.includes('Padlo')) value += Math.round(kz_sumObj(kz_parseUnitsFromLine(ln)) * 0.8);
+      if (ln.includes('Přežilo')) value += Math.round(kz_sumObj(kz_parseUnitsFromLine(ln)) * 0.4);
+    }
+
+    return value;
+  }
+
   async function kz_decideMerge(villageId, newBlockText) {
-    // Hard overwrite režim: vždy vrátíme jen nový blok.
-    // Záměrně bez čtení existující poznámky, aby nemohlo dojít k přimíchání starých dat.
-    return { mode: 'overwrite', note: kz_normalizeNoteBlock(newBlockText) };
+    const note = kz_normalizeNoteBlock(newBlockText);
+    let existing = '';
+    try {
+      existing = await kz_fetchVillageNoteText(villageId);
+    } catch (_) {
+      return { mode: 'overwrite', note };
+    }
+
+    if (!existing || !existing.trim()) return { mode: 'overwrite', note };
+
+    const oldVal = kz_noteIntelValue(existing);
+    const newVal = kz_noteIntelValue(note);
+
+    const oldMs = kz_parseBlockDateToMs(existing);
+    const newMs = kz_parseBlockDateToMs(note);
+
+    if (oldVal > newVal) return { mode: 'skip', note: existing };
+    if (oldVal === newVal && Number.isFinite(oldMs) && Number.isFinite(newMs) && oldMs >= newMs) {
+      return { mode: 'skip', note: existing };
+    }
+
+    return { mode: 'overwrite', note };
   }
 
   function buildNoteBlock(headerInfo, lines, exportCodeOptional, attackSize) {
@@ -737,10 +783,15 @@ javascript:(function () {
 
     const decided = await kz_decideMerge(targetId, newBlock);
 
+    if (decided.mode === 'skip') {
+      UI.SuccessMessage(T.noteSkipped, 1200);
+      return;
+    }
+
     await new Promise((resolve) => {
       apiNoteEdit(targetId, decided.note)
         .done(() => {
-          UI.SuccessMessage(decided.mode === 'overwrite' ? T.noteOverwritten : T.noteAppended, 1200);
+          UI.SuccessMessage(decided.mode === 'skip' ? T.noteSkipped : (decided.mode === 'overwrite' ? T.noteOverwritten : T.noteAppended), 1200);
           resolve();
         })
         .fail(() => {
@@ -921,8 +972,12 @@ javascript:(function () {
 
     try {
       const decided = await kz_decideMerge(targetId, newBlock);
+      if (decided.mode === 'skip') {
+        UI.SuccessMessage(T.noteSkipped, 2500);
+        return;
+      }
       apiNoteEdit(targetId, decided.note)
-        .done(() => UI.SuccessMessage(decided.mode === 'overwrite' ? T.noteOverwritten : T.noteAppended, 2500))
+        .done(() => UI.SuccessMessage(decided.mode === 'skip' ? T.noteSkipped : (decided.mode === 'overwrite' ? T.noteOverwritten : T.noteAppended), 2500))
         .fail(() => UI.ErrorMessage('KZ: Nepovedlo se uložit poznámku (API).', 4000));
     } catch (e) {
       console.error(e);
@@ -959,6 +1014,7 @@ javascript:(function () {
 
   start();
 })();
+
 
 
 
