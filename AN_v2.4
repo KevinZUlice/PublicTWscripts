@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.6-clean-labels-spy-inline" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.7-spy-multi-line" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -223,18 +223,6 @@ javascript:(function () {
     return `[b]${kz_fmtLabelStyled(label)}:[/b] ${fmtUnitsOnly(vec)}`;
   }
 
-  function fmtHomeAwayInline(homeVec, awayVec) {
-    const parts = [];
-    const homeLbl = kz_fmtLabelStyled(T.home);
-    const awayLbl = kz_fmtLabelStyled(T.away);
-
-    const home = fmtUnitsOnly(homeVec);
-    const away = fmtUnitsOnly(awayVec || []);
-
-    if (!isAllZero(homeVec)) parts.push(`[b]${homeLbl}:[/b] ${home}`);
-    if (awayVec && !isAllZero(awayVec)) parts.push(`[b]${awayLbl}:[/b] ${away}`);
-    return parts.join(' | ');
-  }
 
   function getNamesAndVillageIds() {
     const attName = $('#attack_info_att > tbody > tr:nth-child(1) > th:nth-child(2) > a').text().trim();
@@ -599,7 +587,8 @@ javascript:(function () {
     } else if (iAmAtt && side === 'def') {
       const isSpy = kz_isSpyReportDoc(doc);
       if (isSpy) {
-        if (!isAllZero(row2) || (away && !isAllZero(away))) lines.push(fmtHomeAwayInline(row2, away));
+        if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
+        if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
       } else {
         if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
@@ -750,7 +739,8 @@ javascript:(function () {
     } else if (iAmAtt && side === 'def') {
       const isSpy = kz_isSpyReportPage();
       if (isSpy) {
-        if (!isAllZero(row2) || (away && !isAllZero(away))) lines.push(fmtHomeAwayInline(row2, away));
+        if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
+        if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
       } else {
         if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
@@ -809,4 +799,5 @@ javascript:(function () {
 
   start();
 })();
+
 
