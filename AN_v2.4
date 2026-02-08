@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.6-value-aware-merge" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.7-wall-priority-merge" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -463,6 +463,18 @@ javascript:(function () {
     return 0;
   }
 
+
+  function kz_extractWallToLevel(text) {
+    const t = String(text || '');
+    const m = t.match(/Hradby\s+poškozeny\s+ze\s+stupně\s+(\d+)\s+na\s+stupeň\s+(\d+)/i);
+    if (m) return parseInt(m[2], 10);
+
+    const m2 = t.match(/na\s+stupeň\s+(\d+)/i);
+    if (m2) return parseInt(m2[1], 10);
+
+    return NaN;
+  }
+
   function kz_noteIntelValue(noteText) {
     const txt = String(noteText || '');
     const lines = txt.split(/\r?\n/);
@@ -470,12 +482,17 @@ javascript:(function () {
 
     for (const ln of lines) {
       if (ln.includes('Vylepšení')) value += 1200;
-      if (ln.includes('Škoda obléháním') || ln.includes('Škoda vzniklá')) value += 2000;
+      if (ln.includes('Škoda obléháním') || ln.includes('Škoda vzniklá')) value += 9000;
       if (ln.includes('Obránce: jednotky nezjištěny')) value += 400;
       if (ln.includes('Měl doma')) value += kz_sumObj(kz_parseUnitsFromLine(ln));
       if (ln.includes('Měl mimo')) value += kz_sumObj(kz_parseUnitsFromLine(ln));
       if (ln.includes('Padlo')) value += Math.round(kz_sumObj(kz_parseUnitsFromLine(ln)) * 0.8);
       if (ln.includes('Přežilo')) value += Math.round(kz_sumObj(kz_parseUnitsFromLine(ln)) * 0.4);
+    }
+
+    const wallTo = kz_extractWallToLevel(txt);
+    if (Number.isFinite(wallTo)) {
+      value += 50000 + Math.max(0, (30 - wallTo) * 1500);
     }
 
     return value;
@@ -497,6 +514,22 @@ javascript:(function () {
 
     const oldMs = kz_parseBlockDateToMs(existing);
     const newMs = kz_parseBlockDateToMs(note);
+
+    const oldWall = kz_extractWallToLevel(existing);
+    const newWall = kz_extractWallToLevel(note);
+
+    // priorita: nižší výsledný level hradeb je cennější než čistý objem útoku
+    if (Number.isFinite(newWall) && (!Number.isFinite(oldWall) || newWall < oldWall)) {
+      return { mode: 'overwrite', note };
+    }
+    if (Number.isFinite(oldWall) && (!Number.isFinite(newWall) || oldWall < newWall)) {
+      return { mode: 'skip', note: existing };
+    }
+
+    // pokud je nový report novější, dovolíme přepsání i při lehce nižší hodnotě
+    if (Number.isFinite(oldMs) && Number.isFinite(newMs) && newMs > oldMs) {
+      if (newVal >= (oldVal * 0.85)) return { mode: 'overwrite', note };
+    }
 
     if (oldVal > newVal) return { mode: 'skip', note: existing };
     if (oldVal === newVal && Number.isFinite(oldMs) && Number.isFinite(newMs) && oldMs >= newMs) {
@@ -1014,6 +1047,7 @@ javascript:(function () {
 
   start();
 })();
+
 
 
 
