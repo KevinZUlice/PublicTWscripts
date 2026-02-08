@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.5-hard-overwrite" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.6-clean-labels-spy-inline" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -36,12 +36,24 @@ javascript:(function () {
   const ME = GD?.player?.name ? String(GD.player.name) : '';
   const sitter = String(GD?.player?.sitter ?? '0') !== '0';
 
-  const hasArcher = Array.isArray(GD?.units) && GD.units.includes('archer');
-  const UNIT_KEYS = hasArcher
-    ? ['spear','sword','axe','archer','spy','light','marcher','heavy','ram','catapult']
-    : ['spear','sword','axe','spy','light','heavy','ram','catapult'];
+  const UNIT_KEYS = Array.isArray(GD?.units) && GD.units.length
+    ? GD.units.filter(u => u !== 'militia')
+    : ['spear','sword','axe','spy','light','heavy','ram','catapult','snob'];
 
-  const FARM = hasArcher ? [1,1,1,1,2,4,5,6,5,8] : [1,1,1,2,4,6,5,8];
+  const UNIT_POP = {
+    spear: 1,
+    sword: 1,
+    axe: 1,
+    archer: 1,
+    spy: 2,
+    light: 4,
+    marcher: 5,
+    heavy: 6,
+    ram: 5,
+    catapult: 8,
+    knight: 10,
+    snob: 100,
+  };
 
   // Jemné doladění merge logiky mezi světy
   const KZ_MERGE_TUNING = {
@@ -125,13 +137,10 @@ javascript:(function () {
     let off = 0, deff = 0;
     for (let i = 0; i < vec.length; i++) {
       const n = vec[i] || 0;
-      if (hasArcher) {
-        if (i === 2 || i === 5 || i === 6 || i === 8 || i === 9) off += n * FARM[i];
-        if (i === 0 || i === 1 || i === 3 || i === 7) deff += n * FARM[i];
-      } else {
-        if (i === 2 || i === 4 || i === 6 || i === 7) off += n * FARM[i];
-        if (i === 0 || i === 1 || i === 5) deff += n * FARM[i];
-      }
+      const unit = UNIT_KEYS[i];
+      const pop = UNIT_POP[unit] || 0;
+      if (unit === 'axe' || unit === 'light' || unit === 'marcher' || unit === 'ram' || unit === 'catapult') off += n * pop;
+      if (unit === 'spear' || unit === 'sword' || unit === 'archer' || unit === 'heavy' || unit === 'knight') deff += n * pop;
     }
     return { off, deff };
   }
@@ -140,7 +149,7 @@ javascript:(function () {
     const { off, deff } = calcOffDeffFarm(vec);
     if (!vec.some(v => v > 0)) return { text: T.noSurvivors, color: '#888888', score: 0.0, tag: 'mix' };
 
-    const spyIdx = hasArcher ? 4 : 3;
+    const spyIdx = Math.max(0, UNIT_KEYS.indexOf('spy'));
     const spyCount = vec[spyIdx] || 0;
     const total = vec.reduce((a, b) => a + (b || 0), 0);
     const nonSpy = Math.max(0, total - spyCount);
@@ -194,19 +203,37 @@ javascript:(function () {
   }
 
   function kz_fmtLabelStyled(label) {
-    if (label === T.home) return `[color=#1976d2]🔵 ${label}[/color]`;
-    if (label === T.died || label === T.died100) return `[color=#d32f2f]🔴 ${label}[/color]`;
-    if (label === T.survived) return `[color=#2e7d32]🟢 ${label}[/color]`;
+    if (label === T.home) return `[color=#1976d2]${label}[/color]`;
+    if (label === T.away) return `[color=#7b1fa2]${label}[/color]`;
+    if (label === T.died || label === T.died100) return `[color=#d32f2f]${label}[/color]`;
+    if (label === T.survived) return `[color=#2e7d32]${label}[/color]`;
     return label;
   }
 
-  function fmtLine(label, vec) {
+  function fmtUnitsOnly(vec) {
     const parts = [];
     for (let i = 0; i < UNIT_KEYS.length; i++) {
       const n = vec[i] || 0;
       if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${n}`);
     }
-    return `[b]${kz_fmtLabelStyled(label)}:[/b] ${parts.length ? parts.join(' ') : '—'}`;
+    return parts.length ? parts.join(' ') : '—';
+  }
+
+  function fmtLine(label, vec) {
+    return `[b]${kz_fmtLabelStyled(label)}:[/b] ${fmtUnitsOnly(vec)}`;
+  }
+
+  function fmtHomeAwayInline(homeVec, awayVec) {
+    const parts = [];
+    const homeLbl = kz_fmtLabelStyled(T.home);
+    const awayLbl = kz_fmtLabelStyled(T.away);
+
+    const home = fmtUnitsOnly(homeVec);
+    const away = fmtUnitsOnly(awayVec || []);
+
+    if (!isAllZero(homeVec)) parts.push(`[b]${homeLbl}:[/b] ${home}`);
+    if (awayVec && !isAllZero(awayVec)) parts.push(`[b]${awayLbl}:[/b] ${away}`);
+    return parts.join(' | ');
   }
 
   function getNamesAndVillageIds() {
@@ -571,10 +598,10 @@ javascript:(function () {
       }
     } else if (iAmAtt && side === 'def') {
       const isSpy = kz_isSpyReportDoc(doc);
-      if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
       if (isSpy) {
-        if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
+        if (!isAllZero(row2) || (away && !isAllZero(away))) lines.push(fmtHomeAwayInline(row2, away));
       } else {
+        if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
         if (!isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
         if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
@@ -722,10 +749,10 @@ javascript:(function () {
       }
     } else if (iAmAtt && side === 'def') {
       const isSpy = kz_isSpyReportPage();
-      if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
       if (isSpy) {
-        if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
+        if (!isAllZero(row2) || (away && !isAllZero(away))) lines.push(fmtHomeAwayInline(row2, away));
       } else {
+        if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
         if (!isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
         if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
