@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.2-spy-vs-off-attack-mode" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.3-attack-size-and-axe1000-gate" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -110,7 +110,8 @@ javascript:(function () {
       const href = a.getAttribute('href');
       if (!href) continue;
       const url = href.startsWith('http') ? href : (location.origin + href);
-      out.push(url);
+      const attackSize = kz_attackSizeFromDoc(tr) || "";
+      out.push({ url, attackSize });
     }
     return out;
   }
@@ -578,6 +579,17 @@ javascript:(function () {
     return `[b][unit]spy[/unit] ${T.attackOn}:[/b] ${attName || T.unknown}${spyCount > 0 ? ` | [unit]spy[/unit] ${spyCount}` : ''}`;
   }
 
+  function kz_getAxeCount(vec) {
+    const axeIdx = UNIT_KEYS.indexOf('axe');
+    if (axeIdx < 0 || !vec) return 0;
+    return vec[axeIdx] || 0;
+  }
+
+  function fmtAttackOnLine(defName, attackSize) {
+    const prefix = attackSize ? `${attackSize} ` : '';
+    return fmtMetaLine(`${prefix}${T.attackOn}`, defName || T.unknown, '#455a64');
+  }
+
   function kz_pushDefMetaLines(lines, defMeta) {
     if (defMeta.upgrades.length) {
       lines.push(fmtMetaLine(T.upgrades, null, '#6a1b9a'));
@@ -612,7 +624,7 @@ javascript:(function () {
   function kz_extractDefenderMetaPage() {
     return kz_extractDefenderMetaDoc(document);
   }
-  async function kz_processReportHTML(html) {
+  async function kz_processReportHTML(html, attackSizeHint = "") {
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const getTxt = (sel) => (doc.querySelector(sel)?.textContent || '').trim();
 
@@ -648,6 +660,7 @@ javascript:(function () {
     if (side === 'def') away = kz_parseSpyAwayVecDoc(doc);
 
     const defMeta = kz_extractDefenderMetaDoc(doc);
+    const attackSize = attackSizeHint || kz_attackSizeFromDoc(doc);
 
     const lines = [];
     let headerVecForClass = row2 || attRow2 || [];
@@ -664,26 +677,30 @@ javascript:(function () {
     } else if (iAmAtt && side === 'def') {
       const isOffAttack = kz_isOffensiveByAxes(attRow2);
       const isSpyAttack = !isOffAttack;
-      if (isSpyAttack) lines.push(fmtSpyAttackLine(defName, attRow2));
-      else lines.push(fmtMetaLine(T.attackOn, defName || T.unknown, '#455a64'));
 
       if (isSpyAttack) {
+        lines.push(fmtSpyAttackLine(defName, attRow2));
         if (row2 && !isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
       } else if (row2 && row3) {
+        lines.push(fmtAttackOnLine(defName, attackSize));
         if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
         if (surv && !isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
         if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
+        kz_pushDefMetaLines(lines, defMeta);
       } else if (attRow2 && attRow3) {
-        const mySurv = vecSub(attRow2, attRow3);
-        if (!isAllZero(attRow3)) lines.push(fmtLine(T.died, attRow3));
-        if (!isAllZero(mySurv)) lines.push(fmtLine(T.survived, mySurv));
-        lines.push(fmtMetaLine(T.noDefenderUnits, '—', '#616161'));
-        headerVecForClass = attRow2;
+        const axeDied = kz_getAxeCount(attRow3);
+        if (axeDied >= 1000) {
+          const mySurv = vecSub(attRow2, attRow3);
+          lines.push(fmtAttackOnLine(defName, attackSize));
+          if (!isAllZero(attRow3)) lines.push(fmtLine(T.died, attRow3));
+          if (!isAllZero(mySurv)) lines.push(fmtLine(T.survived, mySurv));
+          lines.push(fmtMetaLine(T.noDefenderUnits, '—', '#616161'));
+          kz_pushDefMetaLines(lines, defMeta);
+          headerVecForClass = attRow2;
+        }
       }
-
-      kz_pushDefMetaLines(lines, defMeta);
 
       headerVecForClass = headerVecForClass || row2 || attRow2 || [];
     }
@@ -691,7 +708,6 @@ javascript:(function () {
     if (!lines.length) return;
 
     const battleDate = kz_getBattleDateTextFromDoc(doc);
-    const attackSize = kz_attackSizeFromDoc(doc);
     const headerInfo = classify(headerVecForClass);
     const newBlock = buildNoteBlockWithForcedDate(headerInfo, lines, null, battleDate, attackSize);
 
@@ -711,8 +727,8 @@ javascript:(function () {
   }
 
   async function kz_runBatchFromOverview() {
-    const urls = kz_getSelectedReportUrlsFromOverview();
-    if (!urls.length) {
+    const selected = kz_getSelectedReportUrlsFromOverview();
+    if (!selected.length) {
       UI.ErrorMessage('KZ: Označ alespoň 1 oznamku (checkbox).', 4000);
       return;
     }
@@ -722,7 +738,7 @@ javascript:(function () {
     const $box = $(`
       <div style="padding:10px">
         <div style="font-weight:700">KZ Batch – Auto poznámky</div>
-        <div style="margin-top:6px">Vybráno: <b>${urls.length}</b></div>
+        <div style="margin-top:6px">Vybráno: <b>${selected.length}</b></div>
 
         <div style="margin-top:8px">
           Delay mezi reporty:
@@ -746,29 +762,30 @@ javascript:(function () {
       const $status = $box.find('#kz_batch_status');
       const delayMs = Math.max(200, parseInt($box.find('#kz_batch_delay').val(), 10) || 900);
 
-      $status.text(`Načítám reporty pro řazení podle času boje… (0/${urls.length})`);
+      $status.text(`Načítám reporty pro řazení podle času boje… (0/${selected.length})`);
 
       const items = [];
-      for (let i = 0; i < urls.length; i++) {
+      for (let i = 0; i < selected.length; i++) {
         if (stop) { $status.text('Zastaveno.'); return; }
 
-        $status.text(`Načítám reporty pro řazení podle času boje… (${i + 1}/${urls.length})`);
+        $status.text(`Načítám reporty pro řazení podle času boje… (${i + 1}/${selected.length})`);
 
         try {
-          const html = await (await fetch(urls[i], { credentials: 'include' })).text();
+          const html = await (await fetch(selected[i].url, { credentials: 'include' })).text();
           const doc = new DOMParser().parseFromString(html, 'text/html');
           const battleDate = kz_getBattleDateTextFromDoc(doc);
           const ms = kz_parseBattleDateToMs(battleDate);
 
           items.push({
-            url: urls[i],
+            url: selected[i].url,
+            attackSize: selected[i].attackSize || "",
             html,
             battleDate,
             ms: Number.isFinite(ms) ? ms : Number.POSITIVE_INFINITY,
           });
         } catch (e) {
           console.error(e);
-          items.push({ url: urls[i], html: null, battleDate: '', ms: Number.POSITIVE_INFINITY });
+          items.push({ url: selected[i].url, html: null, battleDate: '', ms: Number.POSITIVE_INFINITY, attackSize: selected[i].attackSize || '' });
         }
       }
 
@@ -784,7 +801,7 @@ javascript:(function () {
         $status.text(`Zpracovávám ${i + 1}/${items.length}… (${it.battleDate || 'čas boje ?'})`);
 
         try {
-          if (it.html) await kz_processReportHTML(it.html);
+          if (it.html) await kz_processReportHTML(it.html, it.attackSize || "");
         } catch (e) {
           console.error(e);
         }
@@ -817,6 +834,7 @@ javascript:(function () {
     if (side === 'def') away = kz_parseSpyAwayVecPage();
 
     const defMeta = kz_extractDefenderMetaPage();
+    const attackSize = kz_attackSizeFromPage();
 
     const lines = [];
     let headerVecForClass = row2 || attRow2 || [];
@@ -836,26 +854,30 @@ javascript:(function () {
     } else if (iAmAtt && side === 'def') {
       const isOffAttack = kz_isOffensiveByAxes(attRow2);
       const isSpyAttack = !isOffAttack;
-      if (isSpyAttack) lines.push(fmtSpyAttackLine(defName, attRow2));
-      else lines.push(fmtMetaLine(T.attackOn, defName || T.unknown, '#455a64'));
 
       if (isSpyAttack) {
+        lines.push(fmtSpyAttackLine(defName, attRow2));
         if (row2 && !isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
       } else if (row2 && row3) {
+        lines.push(fmtAttackOnLine(defName, attackSize));
         if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
         if (surv && !isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
         if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
+        kz_pushDefMetaLines(lines, defMeta);
       } else if (attRow2 && attRow3) {
-        const mySurv = vecSub(attRow2, attRow3);
-        if (!isAllZero(attRow3)) lines.push(fmtLine(T.died, attRow3));
-        if (!isAllZero(mySurv)) lines.push(fmtLine(T.survived, mySurv));
-        lines.push(fmtMetaLine(T.noDefenderUnits, '—', '#616161'));
-        headerVecForClass = attRow2;
+        const axeDied = kz_getAxeCount(attRow3);
+        if (axeDied >= 1000) {
+          const mySurv = vecSub(attRow2, attRow3);
+          lines.push(fmtAttackOnLine(defName, attackSize));
+          if (!isAllZero(attRow3)) lines.push(fmtLine(T.died, attRow3));
+          if (!isAllZero(mySurv)) lines.push(fmtLine(T.survived, mySurv));
+          lines.push(fmtMetaLine(T.noDefenderUnits, '—', '#616161'));
+          kz_pushDefMetaLines(lines, defMeta);
+          headerVecForClass = attRow2;
+        }
       }
-
-      kz_pushDefMetaLines(lines, defMeta);
 
       headerVecForClass = headerVecForClass || row2 || attRow2 || [];
     } else {
@@ -870,7 +892,6 @@ javascript:(function () {
       return;
     }
 
-    const attackSize = kz_attackSizeFromPage();
     const headerInfo = classify(headerVecForClass);
     const newBlock = buildNoteBlock(headerInfo, lines, null, attackSize);
 
@@ -914,5 +935,6 @@ javascript:(function () {
 
   start();
 })();
+
 
 
