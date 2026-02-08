@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.4-spy-away-emoji-pop" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.2.5-hard-overwrite" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -416,11 +416,8 @@ javascript:(function () {
   }
 
   async function kz_decideMerge(villageId, newBlockText) {
-    const existing = await kz_fetchVillageNoteText(villageId);
-
-    // Zjednodušený režim: držíme vždy jen poslední (nejnovější) záznam,
-    // aby v poznámce nevznikal mix více historických bloků.
-    if (!existing || !existing.trim()) return { mode: 'overwrite', note: newBlockText };
+    // Hard overwrite režim: vždy vrátíme jen nový blok.
+    // Záměrně bez čtení existující poznámky, aby nemohlo dojít k přimíchání starých dat.
     return { mode: 'overwrite', note: newBlockText };
   }
 
@@ -785,3 +782,4 @@ javascript:(function () {
 
   start();
 })();
+
