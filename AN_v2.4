@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.3-attack-size-and-axe1000-gate" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.4-attack-size-fallback-from-sent" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -506,16 +506,28 @@ javascript:(function () {
 
 
   function kz_attackSizeFromDoc(doc) {
-    const img = doc.querySelector('img[src*="attack_large"], img[src*="attack_medium"], img[src*="attack_small"]');
+    const img = doc.querySelector('img[src*="attack_large"], img[src*="attack_medium"], img[src*="attack_small"], img[data-title*="Velký útok"], img[data-title*="Střední útok"], img[data-title*="Malý útok"]');
     const src = img?.getAttribute('src') || '';
-    if (src.includes('attack_large')) return '🪓L';
-    if (src.includes('attack_medium')) return '🪓M';
-    if (src.includes('attack_small')) return '🪓S';
+    const title = img?.getAttribute('data-title') || img?.getAttribute('title') || '';
+    if (src.includes('attack_large') || /Velký\s+útok/i.test(title)) return '🪓L';
+    if (src.includes('attack_medium') || /Střední\s+útok/i.test(title)) return '🪓M';
+    if (src.includes('attack_small') || /Malý\s+útok/i.test(title)) return '🪓S';
     return '';
   }
 
   function kz_attackSizeFromPage() {
     return kz_attackSizeFromDoc(document);
+  }
+
+
+  function kz_attackSizeFromSentVec(sentVec) {
+    if (!sentVec) return '';
+    let total = 0;
+    for (const n of sentVec) total += (n || 0);
+    if (total > 5000) return '🪓L';
+    if (total > 1000) return '🪓M';
+    if (total > 0) return '🪓S';
+    return '';
   }
 
   function kz_isSpyReportDoc(doc) {
@@ -660,7 +672,7 @@ javascript:(function () {
     if (side === 'def') away = kz_parseSpyAwayVecDoc(doc);
 
     const defMeta = kz_extractDefenderMetaDoc(doc);
-    const attackSize = attackSizeHint || kz_attackSizeFromDoc(doc);
+    const attackSize = attackSizeHint || kz_attackSizeFromDoc(doc) || kz_attackSizeFromSentVec(attRow2);
 
     const lines = [];
     let headerVecForClass = row2 || attRow2 || [];
@@ -834,7 +846,7 @@ javascript:(function () {
     if (side === 'def') away = kz_parseSpyAwayVecPage();
 
     const defMeta = kz_extractDefenderMetaPage();
-    const attackSize = kz_attackSizeFromPage();
+    const attackSize = kz_attackSizeFromPage() || kz_attackSizeFromSentVec(attRow2);
 
     const lines = [];
     let headerVecForClass = row2 || attRow2 || [];
@@ -935,6 +947,7 @@ javascript:(function () {
 
   start();
 })();
+
 
 
 
