@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.9-latest-wall-damage-priority" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.4.0-robust-wall-meta-detect" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -709,24 +709,38 @@ javascript:(function () {
 
   function kz_extractDefenderMetaDoc(doc) {
     const out = { upgrades: [], siege: [] };
-    const rows = Array.from(doc.querySelectorAll('#attack_info_def tr'));
-    for (const tr of rows) {
-      const cells = tr.querySelectorAll('th, td');
-      if (cells.length < 2) continue;
-      const key = (cells[0].textContent || '').replace(/\s+/g, ' ').trim().replace(/:$/, '');
-      const valRaw = (cells[1].textContent || '').trim();
-      if (!key || !valRaw) continue;
 
-      if (/^Vylepšení$/i.test(key)) {
-        const lines = kz_cleanTextLines(valRaw);
-        if (lines.length) out.upgrades.push(...lines);
-      }
+    const collectFromRows = (rows) => {
+      for (const tr of rows) {
+        const cells = tr.querySelectorAll('th, td');
+        if (cells.length < 2) continue;
 
-      if (/^Škoda vzniklá/i.test(key)) {
-        const val = kz_cleanTextLines(valRaw).join(' | ');
-        if (val) out.siege.push(`${key}: ${val}`);
+        const key = (cells[0].textContent || '').replace(/\s+/g, ' ').trim().replace(/:$/, '');
+        const valRaw = (cells[1].textContent || '').trim();
+        if (!key || !valRaw) continue;
+
+        if (/^Vylepšení$/i.test(key)) {
+          const lines = kz_cleanTextLines(valRaw);
+          if (lines.length) out.upgrades.push(...lines);
+        }
+
+        if (/^Škoda vzniklá/i.test(key)) {
+          const val = kz_cleanTextLines(valRaw).join(' | ');
+          if (val) out.siege.push(`${key}: ${val}`);
+        }
       }
-    }
+    };
+
+    // 1) klasická sekce obránce
+    collectFromRows(Array.from(doc.querySelectorAll('#attack_info_def tr')));
+
+    // 2) fallback: některé reporty mají "Škoda vzniklá..." mimo attack_info_def
+    collectFromRows(Array.from(doc.querySelectorAll('#content_value table.vis tr')));
+
+    // dedupe
+    out.upgrades = Array.from(new Set(out.upgrades));
+    out.siege = Array.from(new Set(out.siege));
+
     return out;
   }
 
@@ -1053,6 +1067,7 @@ javascript:(function () {
 
   start();
 })();
+
 
 
 
