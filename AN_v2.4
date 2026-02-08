@@ -4,7 +4,7 @@ javascript:(function () {
   const $ = window.jQuery;
   if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
 
-  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.1-attack-on-and-multiline-upgrades" };
+  const ScriptData = { name: "KZ – Auto poznámky z oznamky (CZ)", version: "v0.3.2-spy-vs-off-attack-mode" };
   const T = {
     verifyReportPage: "Skript musíš spustit v detailu oznamky (report).",
     noteCreated: "Poznámka uložena",
@@ -25,7 +25,6 @@ javascript:(function () {
     survived: "Přežilo",
     home: "Měl doma",
     away: "Měl mimo",
-    homeAwayTotal: "Celkem doma+mimo",
     upgrades: "Vylepšení",
     siegeDamage: "Škoda obléháním",
     noDefenderUnits: "Obránce: jednotky nezjištěny",
@@ -196,12 +195,6 @@ javascript:(function () {
     return out;
   }
 
-  function vecAdd(a, b) {
-    const out = [];
-    for (let i = 0; i < Math.max(a.length, b.length); i++) out[i] = Math.max(0, (a[i] || 0) + (b[i] || 0));
-    return out;
-  }
-
   function vecEqual(a, b) {
     for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] || 0) !== (b[i] || 0)) return false;
     return true;
@@ -216,7 +209,6 @@ javascript:(function () {
   function kz_fmtLabelStyled(label) {
     if (label === T.home) return `[color=#1976d2]${label}[/color]`;
     if (label === T.away) return `[color=#7b1fa2]${label}[/color]`;
-    if (label === T.homeAwayTotal) return `[color=#00838f]${label}[/color]`;
     if (label === T.died || label === T.died100) return `[color=#d32f2f]${label}[/color]`;
     if (label === T.survived) return `[color=#2e7d32]${label}[/color]`;
     return label;
@@ -574,6 +566,18 @@ javascript:(function () {
     return `[b]${lbl}:[/b] ${value || '—'}`;
   }
 
+  function kz_isOffensiveByAxes(sentVec) {
+    const axeIdx = UNIT_KEYS.indexOf('axe');
+    if (axeIdx < 0 || !sentVec) return false;
+    return (sentVec[axeIdx] || 0) >= 100;
+  }
+
+  function fmtSpyAttackLine(attName, sentVec) {
+    const spyIdx = UNIT_KEYS.indexOf('spy');
+    const spyCount = spyIdx >= 0 ? (sentVec?.[spyIdx] || 0) : 0;
+    return `[b][unit]spy[/unit] ${T.attackOn}:[/b] ${attName || T.unknown}${spyCount > 0 ? ` | [unit]spy[/unit] ${spyCount}` : ''}`;
+  }
+
   function kz_pushDefMetaLines(lines, defMeta) {
     if (defMeta.upgrades.length) {
       lines.push(fmtMetaLine(T.upgrades, null, '#6a1b9a'));
@@ -658,12 +662,14 @@ javascript:(function () {
         if (surv && !isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
       }
     } else if (iAmAtt && side === 'def') {
-      lines.push(fmtMetaLine(T.attackOn, defName || T.unknown, '#455a64'));
-      const isSpy = kz_isSpyReportDoc(doc);
-      if (isSpy) {
+      const isOffAttack = kz_isOffensiveByAxes(attRow2);
+      const isSpyAttack = !isOffAttack;
+      if (isSpyAttack) lines.push(fmtSpyAttackLine(defName, attRow2));
+      else lines.push(fmtMetaLine(T.attackOn, defName || T.unknown, '#455a64'));
+
+      if (isSpyAttack) {
         if (row2 && !isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
-        if (row2 && !isAllZero(row2) && away && !isAllZero(away)) lines.push(fmtLine(T.homeAwayTotal, vecAdd(row2, away)));
       } else if (row2 && row3) {
         if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
@@ -828,12 +834,14 @@ javascript:(function () {
         if (surv && !isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
       }
     } else if (iAmAtt && side === 'def') {
-      lines.push(fmtMetaLine(T.attackOn, defName || T.unknown, '#455a64'));
-      const isSpy = kz_isSpyReportPage();
-      if (isSpy) {
+      const isOffAttack = kz_isOffensiveByAxes(attRow2);
+      const isSpyAttack = !isOffAttack;
+      if (isSpyAttack) lines.push(fmtSpyAttackLine(defName, attRow2));
+      else lines.push(fmtMetaLine(T.attackOn, defName || T.unknown, '#455a64'));
+
+      if (isSpyAttack) {
         if (row2 && !isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (away && !isAllZero(away)) lines.push(fmtLine(T.away, away));
-        if (row2 && !isAllZero(row2) && away && !isAllZero(away)) lines.push(fmtLine(T.homeAwayTotal, vecAdd(row2, away)));
       } else if (row2 && row3) {
         if (!isAllZero(row2)) lines.push(fmtLine(T.home, row2));
         if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
@@ -906,4 +914,5 @@ javascript:(function () {
 
   start();
 })();
+
 
