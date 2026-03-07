@@ -1,0 +1,1012 @@
+javascript:(function () {
+  'use strict';
+
+  const $ = window.jQuery;
+  if (!$) { alert('KZ: chybí jQuery (nejsi v herním UI?)'); return; }
+
+  const ScriptData = { name: 'KZ – Auto poznámky z oznamky (CZ)', version: 'v2.6-draft1' };
+  const T = {
+    verifyReportPage: 'Skript musíš spustit v detailu oznamky (report).',
+    noteCreated: 'Poznámka uložena',
+    noteOverwritten: 'Snapshot aktualizován',
+    noteAppended: 'Historie doplněna',
+    chooseSide: 'Zapsat report ke které vesnici?',
+    attacker: 'Útočník',
+    defender: 'Obránce',
+    unknown: 'Neznámé',
+    offensive: 'Off',
+    defensive: 'Deff',
+    probOffensive: 'Spíš off',
+    probDefensive: 'Spíš deff',
+    noSurvivors: 'Nic nepřežilo',
+    sent: 'Poslal',
+    died: 'Padlo',
+    survived: 'Přežilo',
+    home: 'Měl doma',
+    away: 'Měl mimo',
+    died100: 'Padlo (100%)',
+  };
+
+  const UI = window.UI;
+  const Dialog = window.Dialog;
+  const Timing = window.Timing;
+
+  const GD = window.game_data;
+  const ME = GD?.player?.name ? String(GD.player.name) : '';
+  const sitter = String(GD?.player?.sitter ?? '0') !== '0';
+
+  const KZ_BLOCK_START = '[KZ-AUTONOTE-V2.6-START]';
+  const KZ_BLOCK_END = '[KZ-AUTONOTE-V2.6-END]';
+  const KZ_META_START = '[KZ-META]';
+  const KZ_META_END = '[/KZ-META]';
+  const KZ_SNAPSHOT_START = '[KZ-SNAPSHOT]';
+  const KZ_SNAPSHOT_END = '[/KZ-SNAPSHOT]';
+  const KZ_HISTORY_START = '[KZ-HISTORY]';
+  const KZ_HISTORY_END = '[/KZ-HISTORY]';
+  const KZ_VERSION = '2.6';
+  const HISTORY_LIMIT = 5;
+
+  const hasArcher = Array.isArray(GD?.units) && GD.units.includes('archer');
+  const UNIT_KEYS = hasArcher
+    ? ['spear','sword','axe','archer','spy','light','marcher','heavy','ram','catapult']
+    : ['spear','sword','axe','spy','light','heavy','ram','catapult'];
+  const UNIT_INDEX = Object.fromEntries(UNIT_KEYS.map((u, i) => [u, i]));
+  const FARM = hasArcher ? [1,1,1,1,2,4,5,6,5,8] : [1,1,1,2,4,6,5,8];
+
+  function verifyReportPage() {
+    const m = window.location.href.match(/screen=report|view=report|screen=report_view|mode=report/);
+    if (!m) { UI.ErrorMessage(T.verifyReportPage, 5000); return false; }
+    if (!$('#attack_info_att').length || !$('#attack_info_def').length) { UI.ErrorMessage(T.verifyReportPage, 5000); return false; }
+    return true;
+  }
+
+  function kz_isReportOverviewPage() {
+    return !!document.querySelector('#report_list');
+  }
+
+  function kz_getBattleDateText() {
+    const rows = Array.from(document.querySelectorAll('#content_value table.vis tr'));
+    for (const tr of rows) {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < 2) continue;
+      const key = (tds[0].textContent || '').replace(/\s+/g, ' ').trim();
+      if (key !== 'Čas boje') continue;
+      const td = tds[1].cloneNode(true);
+      td.querySelectorAll('span').forEach(s => s.remove());
+      const raw = (td.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+      return raw || 'čas boje neznámý';
+    }
+    return 'čas boje neznámý';
+  }
+
+  function kz_getSelectedReportUrlsFromOverview() {
+    const rows = Array.from(document.querySelectorAll('#report_list tr'));
+    const out = [];
+    for (const tr of rows) {
+      const cb = tr.querySelector('input[type="checkbox"][name^="id_"]:checked');
+      if (!cb) continue;
+      const a = tr.querySelector('a.report-link[href*="view="]');
+      if (!a) continue;
+      const href = a.getAttribute('href');
+      if (!href) continue;
+      out.push(href.startsWith('http') ? href : (location.origin + href));
+    }
+    return out;
+  }
+
+  function kz_parseBattleDateToMs(s) {
+    if (!s) return NaN;
+    const txt = String(s).trim();
+    const m = txt.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return NaN;
+    const dd = parseInt(m[1], 10);
+    const mm = parseInt(m[2], 10);
+    let yy = parseInt(m[3], 10);
+    const hh = parseInt(m[4], 10);
+    const mi = parseInt(m[5], 10);
+    const ss = parseInt(m[6] || '0', 10);
+    if (yy < 100) yy = 2000 + yy;
+    const d = new Date(yy, mm - 1, dd, hh, mi, ss, 0);
+    return d.getTime();
+  }
+
+  function calcOffDeffFarm(vec) {
+    let off = 0, deff = 0;
+    for (let i = 0; i < vec.length; i++) {
+      const n = vec[i] || 0;
+      if (hasArcher) {
+        if (i === 2 || i === 5 || i === 6 || i === 8 || i === 9) off += n * FARM[i];
+        if (i === 0 || i === 1 || i === 3 || i === 7) deff += n * FARM[i];
+      } else {
+        if (i === 2 || i === 4 || i === 6 || i === 7) off += n * FARM[i];
+        if (i === 0 || i === 1 || i === 5) deff += n * FARM[i];
+      }
+    }
+    return { off, deff };
+  }
+
+  function classify(vec) {
+    const { off, deff } = calcOffDeffFarm(vec || []);
+    if (!(vec || []).some(v => v > 0)) return { text: T.noSurvivors, color: '#888888', score: 0.0, tag: 'mix' };
+
+    const offScore = Math.min(1, off / 15000);
+    const deffScore = Math.min(1, deff / 20000);
+
+    if (off > deff) {
+      const score = Math.round(offScore * 10) / 10;
+      const text = (off > 3000) ? T.offensive : T.probOffensive;
+      return { text, color: '#ff0000', score, tag: 'off' };
+    }
+    const score = Math.round(deffScore * 10) / 10;
+    const text = (deff > 1000) ? T.defensive : T.probDefensive;
+    return { text, color: '#0eae0e', score, tag: 'deff' };
+  }
+
+  function parseVecFromUnitsTable(tableSel, rowIndex1based) {
+    const tds = $(`${tableSel} > tbody > tr:nth-child(${rowIndex1based}) > td.unit-item`);
+    if (!tds.length) return null;
+    const vec = [];
+    tds.each((i, el) => {
+      if (i < UNIT_KEYS.length) vec[i] = parseInt((el.textContent || '0').trim(), 10) || 0;
+    });
+    while (vec.length < UNIT_KEYS.length) vec.push(0);
+    return vec;
+  }
+
+  function kz_parseVecFromUnitsTableDoc(doc, tableSel, rowIndex1based) {
+    const row = doc.querySelector(`${tableSel} > tbody > tr:nth-child(${rowIndex1based})`);
+    if (!row) return null;
+    const tds = Array.from(row.querySelectorAll('td.unit-item'));
+    if (!tds.length) return null;
+    const vec = [];
+    for (let i = 0; i < Math.min(tds.length, UNIT_KEYS.length); i++) vec[i] = parseInt((tds[i].textContent || '0').trim(), 10) || 0;
+    while (vec.length < UNIT_KEYS.length) vec.push(0);
+    return vec;
+  }
+
+  function kz_getBattleDateTextFromDoc(doc) {
+    const rows = Array.from(doc.querySelectorAll('#content_value table.vis tr'));
+    for (const tr of rows) {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < 2) continue;
+      const key = (tds[0].textContent || '').replace(/\s+/g, ' ').trim();
+      if (key !== 'Čas boje') continue;
+      const td = tds[1].cloneNode(true);
+      td.querySelectorAll('span').forEach(s => s.remove());
+      const raw = (td.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+      return raw || 'čas boje neznámý';
+    }
+    return 'čas boje neznámý';
+  }
+
+  function kz_extractReportIdFromUrl(url) {
+    return String((String(url || '').match(/[?&]view=(\d+)/) || [])[1] || '');
+  }
+
+  function vecSub(a, b) {
+    const out = [];
+    for (let i = 0; i < Math.max(a?.length || 0, b?.length || 0); i++) out[i] = Math.max(0, (a?.[i] || 0) - (b?.[i] || 0));
+    return out;
+  }
+
+  function vecAdd(a, b) {
+    const out = [];
+    for (let i = 0; i < Math.max(a?.length || 0, b?.length || 0); i++) out[i] = (a?.[i] || 0) + (b?.[i] || 0);
+    return out;
+  }
+
+  function vecEqual(a, b) {
+    for (let i = 0; i < Math.max(a?.length || 0, b?.length || 0); i++) if ((a?.[i] || 0) !== (b?.[i] || 0)) return false;
+    return true;
+  }
+
+  function isAllZero(vec) {
+    if (!vec) return true;
+    for (const n of vec) if ((n | 0) !== 0) return false;
+    return true;
+  }
+
+  function fmtLine(label, vec) {
+    const parts = [];
+    for (let i = 0; i < UNIT_KEYS.length; i++) {
+      const n = vec?.[i] || 0;
+      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${n}`);
+    }
+    return `[b]${label}:[/b] ${parts.length ? parts.join(' ') : '—'}`;
+  }
+
+  function kz_vecToCsv(vec) {
+    const arr = Array.isArray(vec) ? vec.slice() : [];
+    while (arr.length < UNIT_KEYS.length) arr.push(0);
+    return arr.slice(0, UNIT_KEYS.length).map(n => parseInt(n || 0, 10) || 0).join(',');
+  }
+
+  function kz_csvToVec(csv) {
+    const parts = String(csv || '').split(',').map(x => parseInt(x, 10) || 0);
+    while (parts.length < UNIT_KEYS.length) parts.push(0);
+    return parts.slice(0, UNIT_KEYS.length);
+  }
+
+  function kz_confidenceLabel(conf) {
+    if (conf === 'high') return 'vysoká';
+    if (conf === 'medium') return 'střední';
+    return 'nízká';
+  }
+
+  function kz_vecInterestOrder(tag) {
+    if (tag === 'off') {
+      return hasArcher
+        ? ['axe', 'light', 'marcher', 'ram', 'catapult', 'heavy', 'spy']
+        : ['axe', 'light', 'ram', 'catapult', 'heavy', 'spy'];
+    }
+    if (tag === 'deff') {
+      return hasArcher
+        ? ['spear', 'sword', 'archer', 'heavy', 'spy']
+        : ['spear', 'sword', 'heavy', 'spy'];
+    }
+    return UNIT_KEYS.slice();
+  }
+
+  function kz_compactVec(vec, tag, maxParts) {
+    const parts = [];
+    const order = kz_vecInterestOrder(tag);
+    for (const unit of order) {
+      const idx = UNIT_INDEX[unit];
+      const n = vec?.[idx] || 0;
+      if (n > 0) parts.push(`[unit]${unit}[/unit] ${n}`);
+      if (parts.length >= (maxParts || 4)) break;
+    }
+    if (!parts.length) return '0';
+    return parts.join(', ');
+  }
+
+  function kz_parseUnitsFromLine(line) {
+    const re = /\[unit\]([a-z]+)\[\/unit\]\s*([0-9]+)/gi;
+    const out = Object.create(null);
+    let m;
+    while ((m = re.exec(line))) out[m[1]] = (out[m[1]] || 0) + parseInt(m[2], 10);
+    return out;
+  }
+
+  function kz_sumObj(o) {
+    let s = 0;
+    for (const k in o) s += o[k] || 0;
+    return s;
+  }
+
+  function kz_mergeUnitObjs(a, b) {
+    const out = Object.assign(Object.create(null), a || {});
+    for (const k in (b || {})) out[k] = (out[k] || 0) + (b[k] || 0);
+    return out;
+  }
+
+  function kz_extractMostRecentIntelBlock(noteText) {
+    if (!noteText) return null;
+    const lines = noteText.split(/\r?\n/);
+    const markers = ['Měl doma', 'Měl mimo', 'Poslal', 'Padlo', 'Přežilo'];
+    let firstIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (markers.some(m => lines[i].includes(m))) { firstIdx = i; break; }
+    }
+    if (firstIdx === -1) return null;
+    const end = Math.min(lines.length, firstIdx + 14);
+    const blockLines = lines.slice(firstIdx, end);
+    const intel = { home: {}, away: {}, sent: {}, died: {}, surv: {} };
+    for (const ln of blockLines) {
+      if (ln.includes('Měl doma')) intel.home = kz_mergeUnitObjs(intel.home, kz_parseUnitsFromLine(ln));
+      if (ln.includes('Měl mimo')) intel.away = kz_mergeUnitObjs(intel.away, kz_parseUnitsFromLine(ln));
+      if (ln.includes('Poslal')) intel.sent = kz_mergeUnitObjs(intel.sent, kz_parseUnitsFromLine(ln));
+      if (ln.includes('Padlo')) intel.died = kz_mergeUnitObjs(intel.died, kz_parseUnitsFromLine(ln));
+      if (ln.includes('Přežilo')) intel.surv = kz_mergeUnitObjs(intel.surv, kz_parseUnitsFromLine(ln));
+    }
+    const revealed = kz_sumObj(intel.home) + kz_sumObj(intel.away) + kz_sumObj(intel.sent) + kz_sumObj(intel.died) + kz_sumObj(intel.surv);
+    return { intel, revealed, lines: blockLines };
+  }
+
+  function kz_isLikelyLegacyAutoNote(noteText) {
+    if (!noteText) return false;
+    const t = String(noteText);
+    return (/^\s*\d{1,2}\.\d{1,2}\.(\d{2}|\d{4})\s+\d{1,2}:\d{2}/m.test(t)
+      && /(Měl doma|Měl mimo|Poslal|Padlo \(100%\)|Přežilo)/.test(t));
+  }
+
+  function kz_objToVec(obj) {
+    const vec = new Array(UNIT_KEYS.length).fill(0);
+    for (const [unit, val] of Object.entries(obj || {})) {
+      const idx = UNIT_INDEX[unit];
+      if (idx != null) vec[idx] = parseInt(val, 10) || 0;
+    }
+    return vec;
+  }
+
+  function kz_parseLegacyState(noteText) {
+    if (!noteText) return { snapshot: null, history: [] };
+    const intelBlock = kz_extractMostRecentIntelBlock(noteText);
+    if (!intelBlock) return { snapshot: null, history: [] };
+
+    const headerLine = (noteText.split(/\r?\n/).find(l => /^\s*\d{1,2}\.\d{1,2}\.(\d{2}|\d{4})\s+\d{1,2}:\d{2}/.test(l)) || '').trim();
+    const timeMatch = headerLine.match(/^(\d{1,2}\.\d{1,2}\.(\d{2}|\d{4})\s+\d{1,2}:\d{2}(?::\d{2})?)/);
+    const scoreMatch = headerLine.match(/\|\s*([0-9]+(?:\.[0-9]+)?)\s+(off|deff|mix)\s*\|/i);
+    const battleTime = timeMatch ? timeMatch[1] : '';
+    const battleMs = kz_parseBattleDateToMs(battleTime);
+    const scoreValue = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
+    const scoreTag = scoreMatch ? scoreMatch[2].toLowerCase() : 'mix';
+
+    const homeVec = kz_objToVec(intelBlock.intel.home);
+    const awayVec = kz_objToVec(intelBlock.intel.away);
+    const sentVec = kz_objToVec(intelBlock.intel.sent);
+    const diedVec = kz_objToVec(intelBlock.intel.died);
+    const survVec = kz_objToVec(intelBlock.intel.surv);
+
+    let type = 'UNKNOWN';
+    let strength = 0;
+    let confidence = 'low';
+    let mainOffDestroyed = 0;
+    let homeKnown = 0;
+    let awayKnown = 0;
+
+    if (!isAllZero(homeVec) || !isAllZero(awayVec)) {
+      homeKnown = !isAllZero(homeVec) ? 1 : 0;
+      awayKnown = !isAllZero(awayVec) ? 1 : 0;
+      type = awayKnown ? 'FULL_SNAPSHOT' : 'PARTIAL_SNAPSHOT';
+      strength = awayKnown ? 4 : 3;
+      confidence = awayKnown ? 'high' : 'medium';
+    } else if (!isAllZero(diedVec) && isAllZero(sentVec) && isAllZero(survVec)) {
+      if (scoreTag === 'off' && scoreValue >= 0.95) {
+        type = 'OFF_FULL_KILL';
+        strength = 2;
+        confidence = 'medium';
+        mainOffDestroyed = 1;
+      } else {
+        type = 'ATTACK_EVENT';
+        strength = 1;
+        confidence = 'low';
+      }
+    } else if (!isAllZero(sentVec) || !isAllZero(survVec)) {
+      type = 'ATTACK_EVENT';
+      strength = 1;
+      confidence = 'low';
+    }
+
+    if (type === 'UNKNOWN') return { snapshot: null, history: [] };
+
+    const snapshot = {
+      battleTime,
+      battleMs: Number.isFinite(battleMs) ? battleMs : 0,
+      type,
+      strength,
+      villageTag: scoreTag,
+      scoreValue,
+      scoreTag,
+      confidence,
+      homeKnown,
+      awayKnown,
+      mainOffDestroyed,
+      sourceUser: '',
+      sourceReport: '',
+      homeVec,
+      awayVec,
+      sentVec,
+      diedVec,
+      survVec,
+    };
+
+    return { snapshot, history: [] };
+  }
+
+  function kz_extractKzBlock(fullText) {
+    const text = String(fullText || '');
+    const start = text.indexOf(KZ_BLOCK_START);
+    const end = text.indexOf(KZ_BLOCK_END);
+    if (start === -1 || end === -1 || end < start) return null;
+    const afterEnd = end + KZ_BLOCK_END.length;
+    return {
+      block: text.slice(start, afterEnd),
+      before: text.slice(0, start).trim(),
+      after: text.slice(afterEnd).trim(),
+    };
+  }
+
+  function kz_extractSection(text, startTag, endTag) {
+    const s = text.indexOf(startTag);
+    const e = text.indexOf(endTag);
+    if (s === -1 || e === -1 || e < s) return '';
+    return text.slice(s + startTag.length, e).trim();
+  }
+
+  function kz_parseMetaBlock(metaText) {
+    const meta = {};
+    String(metaText || '').split(/\r?\n/).forEach(line => {
+      const m = line.match(/^([^=]+)=(.*)$/);
+      if (!m) return;
+      meta[m[1].trim()] = m[2].trim();
+    });
+    return meta;
+  }
+
+  function kz_parseHistoryLine(line) {
+    const parts = String(line || '').split(' | ');
+    if (parts.length < 5) return null;
+    const battleTime = parts[0].trim();
+    const type = parts[1].trim();
+    const scoreField = parts[2].trim();
+    const summary = parts[3].trim();
+    const reportField = parts[4].trim();
+    const reportMatch = reportField.match(/report=(.*)$/);
+    const sourceReport = reportMatch ? reportMatch[1] : '';
+    const scoreMatch = scoreField.match(/^([0-9]+(?:\.[0-9]+)?)\s+(off|deff|mix)$/i);
+    return {
+      battleTime,
+      battleMs: kz_parseBattleDateToMs(battleTime),
+      type,
+      scoreValue: scoreMatch ? parseFloat(scoreMatch[1]) : 0,
+      scoreTag: scoreMatch ? scoreMatch[2].toLowerCase() : 'mix',
+      summary,
+      sourceReport,
+      rawLine: line.trim(),
+    };
+  }
+
+  function kz_parseStateFromKZBlock(blockText) {
+    const metaText = kz_extractSection(blockText, KZ_META_START, KZ_META_END);
+    const historyText = kz_extractSection(blockText, KZ_HISTORY_START, KZ_HISTORY_END);
+    const meta = kz_parseMetaBlock(metaText);
+
+    const snapshotType = meta.snapshot_type || 'UNKNOWN';
+    const snapshot = snapshotType === 'UNKNOWN' ? null : {
+      battleTime: meta.snapshot_time || '',
+      battleMs: kz_parseBattleDateToMs(meta.snapshot_time || ''),
+      type: snapshotType,
+      strength: parseInt(meta.snapshot_strength || '0', 10) || 0,
+      villageTag: (meta.village_tag || 'mix').toLowerCase(),
+      scoreValue: parseFloat(meta.score_value || '0') || 0,
+      scoreTag: (meta.score_tag || 'mix').toLowerCase(),
+      confidence: meta.confidence || 'low',
+      homeKnown: parseInt(meta.home_known || '0', 10) ? 1 : 0,
+      awayKnown: parseInt(meta.away_known || '0', 10) ? 1 : 0,
+      mainOffDestroyed: parseInt(meta.main_off_destroyed || '0', 10) ? 1 : 0,
+      sourceUser: meta.source_user || '',
+      sourceReport: meta.source_report || '',
+      homeVec: kz_csvToVec(meta.home_vec || ''),
+      awayVec: kz_csvToVec(meta.away_vec || ''),
+      sentVec: kz_csvToVec(meta.sent_vec || ''),
+      diedVec: kz_csvToVec(meta.died_vec || ''),
+      survVec: kz_csvToVec(meta.surv_vec || ''),
+    };
+
+    const history = String(historyText || '').split(/\r?\n/).map(kz_parseHistoryLine).filter(Boolean);
+    return { snapshot, history };
+  }
+
+  function kz_getEnemyVecForClassification({ iAmDef, iAmAtt, side, row2, away }) {
+    if (iAmDef && side === 'att') return row2 || [];
+    if (iAmAtt && side === 'def') return away ? vecAdd(row2 || [], away || []) : (row2 || []);
+    return row2 || [];
+  }
+
+  function kz_buildHistorySummary(event) {
+    if (event.type === 'FULL_SNAPSHOT') return 'doma+mimo';
+    if (event.type === 'PARTIAL_SNAPSHOT') return 'doma';
+    if (event.type === 'OFF_FULL_KILL') return `hlavní off zničena: ${kz_compactVec(event.diedVec || event.sentVec, 'off', 4)}`;
+    if (event.type === 'ATTACK_EVENT') {
+      if (vecEqual(event.sentVec || [], event.diedVec || [])) return `Padlo 100%: ${kz_compactVec(event.diedVec || [], event.villageTag, 4)}`;
+      return `poslal ${kz_compactVec(event.sentVec || [], event.villageTag, 3)} → přežilo ${kz_compactVec(event.survVec || [], event.villageTag, 3)}`;
+    }
+    return 'neznámá událost';
+  }
+
+  function kz_renderHistoryLine(event) {
+    const scoreField = `${Number(event.scoreValue || 0).toFixed(1)} ${event.scoreTag || 'mix'}`;
+    return `${event.battleTime} | ${event.type} | ${scoreField} | ${event.summary} | report=${event.sourceReport || ''}`;
+  }
+
+  function kz_dedupeHistory(events) {
+    const seen = new Set();
+    const out = [];
+    for (const ev of events) {
+      const key = `${ev.battleTime}||${ev.type}||${ev.sourceReport || ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(ev);
+    }
+    return out;
+  }
+
+  function kz_sortHistory(events) {
+    return events.slice().sort((a, b) => {
+      const am = Number.isFinite(a.battleMs) ? a.battleMs : Number.POSITIVE_INFINITY;
+      const bm = Number.isFinite(b.battleMs) ? b.battleMs : Number.POSITIVE_INFINITY;
+      if (am !== bm) return bm - am;
+      return String(b.sourceReport || '').localeCompare(String(a.sourceReport || ''));
+    });
+  }
+
+  function kz_eventToSnapshot(event) {
+    return {
+      battleTime: event.battleTime,
+      battleMs: event.battleMs,
+      type: event.type,
+      strength: event.strength,
+      villageTag: event.villageTag,
+      scoreValue: event.scoreValue,
+      scoreTag: event.scoreTag,
+      confidence: event.confidence,
+      homeKnown: event.homeKnown ? 1 : 0,
+      awayKnown: event.awayKnown ? 1 : 0,
+      mainOffDestroyed: event.mainOffDestroyed ? 1 : 0,
+      sourceUser: event.sourceUser || '',
+      sourceReport: event.sourceReport || '',
+      homeVec: event.homeVec || new Array(UNIT_KEYS.length).fill(0),
+      awayVec: event.awayVec || new Array(UNIT_KEYS.length).fill(0),
+      sentVec: event.sentVec || new Array(UNIT_KEYS.length).fill(0),
+      diedVec: event.diedVec || new Array(UNIT_KEYS.length).fill(0),
+      survVec: event.survVec || new Array(UNIT_KEYS.length).fill(0),
+    };
+  }
+
+  function kz_shouldReplaceSnapshot(oldSnap, event) {
+    if (!oldSnap) return true;
+
+    const oldMs = Number.isFinite(oldSnap.battleMs) ? oldSnap.battleMs : 0;
+    const newMs = Number.isFinite(event.battleMs) ? event.battleMs : 0;
+
+    if (event.type === 'ATTACK_EVENT') return false;
+
+    if (event.type === 'OFF_FULL_KILL') {
+      if (newMs > oldMs) return true;
+      if (newMs === oldMs && event.strength >= (oldSnap.strength || 0)) return true;
+      return false;
+    }
+
+    if (event.type === 'FULL_SNAPSHOT' || event.type === 'PARTIAL_SNAPSHOT') {
+      if (newMs > oldMs) return true;
+      if (newMs === oldMs && event.strength >= (oldSnap.strength || 0)) return true;
+      return false;
+    }
+
+    return false;
+  }
+
+  function kz_renderSnapshot(snapshot) {
+    if (!snapshot) return 'Bez snapshotu';
+
+    const tagUpper = String(snapshot.scoreTag || 'mix').toUpperCase();
+    const line1 = `${snapshot.battleTime} | ${Number(snapshot.scoreValue || 0).toFixed(1)} ${snapshot.scoreTag || 'mix'} | ${tagUpper} | jistota: ${kz_confidenceLabel(snapshot.confidence)}`;
+    const lines = [line1];
+
+    if (snapshot.type === 'FULL_SNAPSHOT' || snapshot.type === 'PARTIAL_SNAPSHOT') {
+      lines.push(fmtLine(T.home, snapshot.homeVec || []));
+      if (snapshot.awayKnown) lines.push(fmtLine(T.away, snapshot.awayVec || []));
+      else lines.push('Mimo vesnici: neznámé');
+      return lines.join('\n');
+    }
+
+    if (snapshot.type === 'OFF_FULL_KILL') {
+      lines.push(`[b]Hlavní off zničena:[/b] ${kz_compactVec(snapshot.diedVec || snapshot.sentVec || [], 'off', 5)}`);
+      lines.push('Mimo vesnici: neznámé');
+      return lines.join('\n');
+    }
+
+    if (snapshot.type === 'ATTACK_EVENT') {
+      if (!isAllZero(snapshot.sentVec || [])) lines.push(fmtLine(T.sent, snapshot.sentVec || []));
+      if (!isAllZero(snapshot.survVec || [])) lines.push(fmtLine(T.survived, snapshot.survVec || []));
+      else if (!isAllZero(snapshot.diedVec || [])) lines.push(fmtLine(T.died100, snapshot.diedVec || []));
+      return lines.join('\n');
+    }
+
+    lines.push('Bez čitelného snapshotu');
+    return lines.join('\n');
+  }
+
+  function kz_renderMeta(snapshot) {
+    const snap = snapshot || {
+      battleTime: '', type: 'UNKNOWN', strength: 0, villageTag: 'mix', scoreValue: 0,
+      scoreTag: 'mix', confidence: 'low', homeKnown: 0, awayKnown: 0, mainOffDestroyed: 0,
+      sourceUser: '', sourceReport: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: []
+    };
+
+    return [
+      `version=${KZ_VERSION}`,
+      `snapshot_time=${snap.battleTime || ''}`,
+      `snapshot_type=${snap.type || 'UNKNOWN'}`,
+      `snapshot_strength=${snap.strength || 0}`,
+      `village_tag=${snap.villageTag || 'mix'}`,
+      `score_value=${Number(snap.scoreValue || 0).toFixed(1)}`,
+      `score_tag=${snap.scoreTag || 'mix'}`,
+      `confidence=${snap.confidence || 'low'}`,
+      `home_known=${snap.homeKnown ? 1 : 0}`,
+      `away_known=${snap.awayKnown ? 1 : 0}`,
+      `main_off_destroyed=${snap.mainOffDestroyed ? 1 : 0}`,
+      `source_user=${snap.sourceUser || ''}`,
+      `source_report=${snap.sourceReport || ''}`,
+      `home_vec=${kz_vecToCsv(snap.homeVec)}`,
+      `away_vec=${kz_vecToCsv(snap.awayVec)}`,
+      `sent_vec=${kz_vecToCsv(snap.sentVec)}`,
+      `died_vec=${kz_vecToCsv(snap.diedVec)}`,
+      `surv_vec=${kz_vecToCsv(snap.survVec)}`,
+    ].join('\n');
+  }
+
+  function kz_renderKzBlock(state) {
+    const historyLines = kz_sortHistory(state.history || []).slice(0, HISTORY_LIMIT).map(ev => ev.rawLine || kz_renderHistoryLine(ev));
+    return [
+      KZ_BLOCK_START,
+      KZ_META_START,
+      kz_renderMeta(state.snapshot),
+      KZ_META_END,
+      KZ_SNAPSHOT_START,
+      kz_renderSnapshot(state.snapshot),
+      KZ_SNAPSHOT_END,
+      KZ_HISTORY_START,
+      historyLines.join('\n'),
+      KZ_HISTORY_END,
+      KZ_BLOCK_END,
+    ].join('\n');
+  }
+
+  function kz_buildEventFromRaw(raw) {
+    const enemyVecForClass = kz_getEnemyVecForClassification(raw);
+    const cls = classify(enemyVecForClass);
+    const surv = raw.survVec || vecSub(raw.row2 || [], raw.row3 || []);
+
+    const event = {
+      battleTime: raw.battleTime,
+      battleMs: kz_parseBattleDateToMs(raw.battleTime),
+      type: 'UNKNOWN',
+      strength: 0,
+      villageTag: cls.tag,
+      scoreValue: cls.score,
+      scoreTag: cls.tag,
+      confidence: 'low',
+      homeKnown: 0,
+      awayKnown: 0,
+      mainOffDestroyed: 0,
+      sourceUser: ME,
+      sourceReport: raw.sourceReport || '',
+      homeVec: new Array(UNIT_KEYS.length).fill(0),
+      awayVec: new Array(UNIT_KEYS.length).fill(0),
+      sentVec: new Array(UNIT_KEYS.length).fill(0),
+      diedVec: new Array(UNIT_KEYS.length).fill(0),
+      survVec: new Array(UNIT_KEYS.length).fill(0),
+      summary: '',
+      lines: [],
+    };
+
+    if (raw.iAmAtt && raw.side === 'def') {
+      event.type = raw.away != null ? 'FULL_SNAPSHOT' : 'PARTIAL_SNAPSHOT';
+      event.strength = raw.away != null ? 4 : 3;
+      event.confidence = raw.away != null ? 'high' : 'medium';
+      event.homeKnown = 1;
+      event.awayKnown = raw.away != null ? 1 : 0;
+      event.homeVec = (raw.row2 || []).slice();
+      event.awayVec = raw.away != null ? raw.away.slice() : new Array(UNIT_KEYS.length).fill(0);
+      event.diedVec = (raw.row3 || []).slice();
+      event.survVec = surv.slice();
+      if (!isAllZero(event.homeVec)) event.lines.push(fmtLine(T.home, event.homeVec));
+      if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died, event.diedVec));
+      if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
+      if (event.awayKnown) event.lines.push(fmtLine(T.away, event.awayVec));
+    } else if (raw.iAmDef && raw.side === 'att') {
+      event.sentVec = (raw.row2 || []).slice();
+      event.diedVec = (raw.row3 || []).slice();
+      event.survVec = surv.slice();
+
+      if (vecEqual(event.sentVec, event.diedVec) && cls.tag === 'off' && Number(cls.score || 0) >= 0.95) {
+        event.type = 'OFF_FULL_KILL';
+        event.strength = 2;
+        event.confidence = 'medium';
+        event.mainOffDestroyed = 1;
+        if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died100, event.diedVec));
+      } else {
+        event.type = 'ATTACK_EVENT';
+        event.strength = 1;
+        event.confidence = 'low';
+        if (vecEqual(event.sentVec, event.diedVec)) {
+          if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died100, event.diedVec));
+        } else {
+          if (!isAllZero(event.sentVec)) event.lines.push(fmtLine(T.sent, event.sentVec));
+          if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
+        }
+      }
+    } else {
+      event.type = 'ATTACK_EVENT';
+      event.strength = 1;
+      event.sentVec = (raw.row2 || []).slice();
+      event.diedVec = (raw.row3 || []).slice();
+      event.survVec = surv.slice();
+      if (!isAllZero(event.sentVec)) event.lines.push(fmtLine('Stav', event.sentVec));
+      if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
+    }
+
+    event.summary = kz_buildHistorySummary(event);
+    event.rawLine = kz_renderHistoryLine(event);
+    return event;
+  }
+
+  function kz_buildStateFromExistingNote(existingText) {
+    const kzBlock = kz_extractKzBlock(existingText);
+    if (kzBlock) {
+      return {
+        state: kz_parseStateFromKZBlock(kzBlock.block),
+        outsideText: [kzBlock.before, kzBlock.after].filter(Boolean).join('\n\n').trim(),
+        hadKzBlock: true,
+      };
+    }
+
+    const legacyState = kz_parseLegacyState(existingText);
+    const outsideText = kz_isLikelyLegacyAutoNote(existingText) ? '' : String(existingText || '').trim();
+    return { state: legacyState, outsideText, hadKzBlock: false };
+  }
+
+  function kz_mergeState(existingState, event) {
+    const state = {
+      snapshot: existingState?.snapshot ? { ...existingState.snapshot } : null,
+      history: Array.isArray(existingState?.history) ? existingState.history.slice() : [],
+    };
+
+    const beforeKey = state.history.map(h => h.rawLine).join('\n');
+    state.history.push({
+      battleTime: event.battleTime,
+      battleMs: event.battleMs,
+      type: event.type,
+      scoreValue: event.scoreValue,
+      scoreTag: event.scoreTag,
+      summary: event.summary,
+      sourceReport: event.sourceReport || '',
+      rawLine: event.rawLine,
+    });
+    state.history = kz_dedupeHistory(state.history);
+    state.history = kz_sortHistory(state.history).slice(0, HISTORY_LIMIT);
+    const afterKey = state.history.map(h => h.rawLine).join('\n');
+    const historyAdded = beforeKey !== afterKey;
+
+    let snapshotUpdated = false;
+    if (!state.snapshot) {
+      state.snapshot = kz_eventToSnapshot(event);
+      snapshotUpdated = true;
+    } else if (kz_shouldReplaceSnapshot(state.snapshot, event)) {
+      state.snapshot = kz_eventToSnapshot(event);
+      snapshotUpdated = true;
+    }
+
+    return { state, snapshotUpdated, historyAdded };
+  }
+
+  async function kz_fetchVillageNoteText(villageId) {
+    const url = `game.php?screen=info_village&id=${encodeURIComponent(villageId)}`;
+    const html = await (await fetch(url, { credentials: 'include' })).text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const ta = doc.querySelector('textarea[name="note"], textarea#note, textarea');
+    return ta ? (ta.value || ta.textContent || '') : '';
+  }
+
+  async function kz_mergeNoteForVillage(villageId, event) {
+    const existingText = await kz_fetchVillageNoteText(villageId);
+    const current = kz_buildStateFromExistingNote(existingText);
+    const merged = kz_mergeState(current.state, event);
+    const kzBlockText = kz_renderKzBlock(merged.state);
+    const finalNote = [kzBlockText, current.outsideText].filter(Boolean).join('\n\n').trim();
+    return { note: finalNote, snapshotUpdated: merged.snapshotUpdated, historyAdded: merged.historyAdded };
+  }
+
+  function getNamesAndVillageIds() {
+    const attName = $('#attack_info_att > tbody > tr:nth-child(1) > th:nth-child(2) > a').text().trim();
+    const defName = $('#attack_info_def > tbody > tr:nth-child(1) > th:nth-child(2) > a').text().trim();
+    const attHref = $('#attack_info_att > tbody > tr:nth-child(2) > td:nth-child(2) a[href*="screen=info_village"][href*="id="]').attr('href') || '';
+    const defHref = $('#attack_info_def > tbody > tr:nth-child(2) > td:nth-child(2) a[href*="screen=info_village"][href*="id="]').attr('href') || '';
+    const attId = (attHref.match(/[?&]id=(\d+)/) || [])[1] || '-1';
+    const defId = (defHref.match(/[?&]id=(\d+)/) || [])[1] || '-1';
+    return { attName, defName, attId, defId };
+  }
+
+  function apiNoteEdit(villageId, noteText) {
+    const base = `https://${location.hostname}/game.php?village=${GD.village.id}&screen=api&ajaxaction=village_note_edit`;
+    const url = sitter
+      ? `${base}&t=${GD.player.id}`
+      : `${base}&h=${GD.csrf}&client_time=${Math.round(Timing.getCurrentServerTime() / 1000)}`;
+    return $.post(url, { note: noteText, village_id: villageId, h: GD.csrf });
+  }
+
+  async function kz_processEventForVillage(targetId, event) {
+    const merged = await kz_mergeNoteForVillage(targetId, event);
+    return new Promise((resolve) => {
+      apiNoteEdit(targetId, merged.note)
+        .done(() => {
+          UI.SuccessMessage(merged.snapshotUpdated ? T.noteOverwritten : T.noteAppended, 1400);
+          resolve();
+        })
+        .fail(() => {
+          UI.ErrorMessage('KZ: Nepovedlo se uložit poznámku (API).', 2500);
+          resolve();
+        });
+    });
+  }
+
+  async function kz_processReportHTML(html, sourceUrl) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const getTxt = (sel) => (doc.querySelector(sel)?.textContent || '').trim();
+
+    const attName = getTxt('#attack_info_att > tbody > tr:nth-child(1) > th:nth-child(2) > a');
+    const defName = getTxt('#attack_info_def > tbody > tr:nth-child(1) > th:nth-child(2) > a');
+    const iAmDef = (defName === ME);
+    const iAmAtt = (attName === ME);
+
+    let side = null;
+    if (iAmDef && !iAmAtt) side = 'att';
+    else if (iAmAtt && !iAmDef) side = 'def';
+    else return;
+
+    const hrefSel = side === 'att'
+      ? '#attack_info_att > tbody > tr:nth-child(2) > td:nth-child(2) a[href*="screen=info_village"][href*="id="]'
+      : '#attack_info_def > tbody > tr:nth-child(2) > td:nth-child(2) a[href*="screen=info_village"][href*="id="]';
+
+    const href = doc.querySelector(hrefSel)?.getAttribute('href') || '';
+    const targetId = (href.match(/[?&]id=(\d+)/) || [])[1];
+    if (!targetId) return;
+
+    const tabSel = side === 'att' ? '#attack_info_att_units' : '#attack_info_def_units';
+    const row2 = kz_parseVecFromUnitsTableDoc(doc, tabSel, 2);
+    const row3 = kz_parseVecFromUnitsTableDoc(doc, tabSel, 3);
+    if (!row2 || !row3) return;
+
+    let away = null;
+    if (side === 'def' && doc.querySelector('#attack_spy_away')) {
+      const tds = Array.from(doc.querySelectorAll('#attack_spy_away > tbody > tr:nth-child(2) > td:nth-child(2) table tbody tr:nth-child(2) > td'));
+      if (tds.length) {
+        away = [];
+        for (let i = 0; i < Math.min(tds.length, UNIT_KEYS.length); i++) away[i] = parseInt((tds[i].textContent || '0').trim(), 10) || 0;
+        while (away.length < UNIT_KEYS.length) away.push(0);
+      }
+    }
+
+    const event = kz_buildEventFromRaw({
+      iAmDef, iAmAtt, side,
+      row2, row3, away,
+      survVec: vecSub(row2, row3),
+      battleTime: kz_getBattleDateTextFromDoc(doc),
+      sourceReport: kz_extractReportIdFromUrl(sourceUrl || doc.URL || ''),
+    });
+
+    await kz_processEventForVillage(targetId, event);
+  }
+
+  async function kz_runBatchFromOverview() {
+    const urls = kz_getSelectedReportUrlsFromOverview();
+    if (!urls.length) {
+      UI.ErrorMessage('KZ: Označ alespoň 1 oznamku (checkbox).', 4000);
+      return;
+    }
+
+    let stop = false;
+
+    const $box = $(`
+      <div style="padding:10px">
+        <div style="font-weight:700">KZ Batch – Auto poznámky v2.6</div>
+        <div style="margin-top:6px">Vybráno: <b>${urls.length}</b></div>
+        <div style="margin-top:8px">Delay mezi reporty: <input id="kz_batch_delay" type="number" min="200" step="100" value="900" style="width:90px"> ms</div>
+        <div id="kz_batch_status" style="margin-top:10px">Připraveno…</div>
+        <div style="margin-top:10px">
+          <button class="btn btn-confirm-yes" id="kz_batch_start">Start</button>
+          <button class="btn" id="kz_batch_stop" style="margin-left:6px">Stop</button>
+        </div>
+      </div>
+    `);
+
+    Dialog.show('kz_batch_notes_v26', $box);
+    $box.find('#kz_batch_stop').on('click', () => { stop = true; });
+
+    $box.find('#kz_batch_start').on('click', async () => {
+      const $status = $box.find('#kz_batch_status');
+      const delayMs = Math.max(200, parseInt($box.find('#kz_batch_delay').val(), 10) || 900);
+
+      $status.text(`Načítám reporty pro řazení podle času boje… (0/${urls.length})`);
+      const items = [];
+
+      for (let i = 0; i < urls.length; i++) {
+        if (stop) { $status.text('Zastaveno.'); return; }
+        $status.text(`Načítám reporty pro řazení podle času boje… (${i + 1}/${urls.length})`);
+        try {
+          const html = await (await fetch(urls[i], { credentials: 'include' })).text();
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          const battleDate = kz_getBattleDateTextFromDoc(doc);
+          items.push({
+            url: urls[i],
+            html,
+            battleDate,
+            ms: kz_parseBattleDateToMs(battleDate),
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      items.sort((a, b) => {
+        const am = Number.isFinite(a.ms) ? a.ms : Number.POSITIVE_INFINITY;
+        const bm = Number.isFinite(b.ms) ? b.ms : Number.POSITIVE_INFINITY;
+        if (am !== bm) return am - bm;
+        return String(a.url).localeCompare(String(b.url));
+      });
+
+      for (let i = 0; i < items.length; i++) {
+        if (stop) { $status.text('Zastaveno.'); return; }
+        const it = items[i];
+        $status.text(`Zpracovávám ${i + 1}/${items.length}… (${it.battleDate || 'čas boje ?'})`);
+        try {
+          await kz_processReportHTML(it.html, it.url);
+        } catch (e) {
+          console.error(e);
+        }
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+
+      $status.text('Hotovo.');
+      UI.SuccessMessage('KZ: Batch dokončen', 2500);
+    });
+  }
+
+  async function runForSide(side) {
+    const { attName, defName, attId, defId } = getNamesAndVillageIds();
+    const iAmDef = (defName === ME);
+    const iAmAtt = (attName === ME);
+    const targetId = side === 'att' ? attId : defId;
+    const tabSel = side === 'att' ? '#attack_info_att_units' : '#attack_info_def_units';
+
+    const row2 = parseVecFromUnitsTable(tabSel, 2);
+    const row3 = parseVecFromUnitsTable(tabSel, 3);
+    if (!row2 || !row3) {
+      UI.ErrorMessage('KZ: Nenašel jsem řádky jednotek (Počet/Ztráty).', 4000);
+      return;
+    }
+
+    let away = null;
+    if (side === 'def' && $('#attack_spy_away').length) {
+      const tds = $('#attack_spy_away > tbody > tr:nth-child(2) > td table tbody tr:nth-child(2) > td');
+      if (tds.length) {
+        away = [];
+        tds.each((i, el) => { if (i < UNIT_KEYS.length) away[i] = parseInt((el.textContent || '0').trim(), 10) || 0; });
+        while (away.length < UNIT_KEYS.length) away.push(0);
+      }
+    }
+
+    const event = kz_buildEventFromRaw({
+      iAmDef, iAmAtt, side,
+      row2, row3, away,
+      survVec: vecSub(row2, row3),
+      battleTime: kz_getBattleDateText(),
+      sourceReport: kz_extractReportIdFromUrl(location.href),
+    });
+
+    try {
+      await kz_processEventForVillage(targetId, event);
+    } catch (e) {
+      console.error(e);
+      UI.ErrorMessage('KZ: Chyba při zpracování poznámky.', 4000);
+    }
+  }
+
+  function start() {
+    if (kz_isReportOverviewPage()) return kz_runBatchFromOverview();
+    if (!verifyReportPage()) return;
+
+    const { attName, defName } = getNamesAndVillageIds();
+    const iAmDef = (defName === ME);
+    const iAmAtt = (attName === ME);
+
+    if (iAmDef && !iAmAtt) return runForSide('att');
+    if (iAmAtt && !iAmDef) return runForSide('def');
+
+    const box = $('<div class="center"></div>').append(
+      $('<div class="center"></div>').text(T.chooseSide),
+      $('<div class="center" style="margin-top:10px;"></div>').append(
+        $('<button class="btn btn-confirm-yes atk" style="margin-right:10px;"></button>').text(T.attacker),
+        $('<button class="btn btn-confirm-yes def"></button>').text(T.defender)
+      )
+    );
+
+    Dialog.show('kz_report_note', box);
+    box.find('button.atk').on('click', () => { Dialog.close(); runForSide('att'); });
+    box.find('button.def').on('click', () => { Dialog.close(); runForSide('def'); });
+  }
+
+  start();
+})();
