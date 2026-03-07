@@ -776,10 +776,10 @@ javascript:(function () {
       scoreValue: cls.score,
       scoreTag: cls.tag,
       confidence: 'low',
-      
+
       intelOrigin: 'unknown',
       knowledgeScope: 'unknown',
-      
+
       homeKnown: 0,
       awayKnown: 0,
       mainOffDestroyed: 0,
@@ -798,16 +798,22 @@ javascript:(function () {
       event.type = raw.away != null ? 'FULL_SNAPSHOT' : 'PARTIAL_SNAPSHOT';
       event.strength = raw.away != null ? 4 : 3;
       event.confidence = raw.away != null ? 'high' : 'medium';
+
+      event.intelOrigin = 'village_snapshot';
+      event.knowledgeScope = raw.away != null ? 'home_and_away' : 'home_only';
+
       event.homeKnown = 1;
       event.awayKnown = raw.away != null ? 1 : 0;
       event.homeVec = (raw.row2 || []).slice();
       event.awayVec = raw.away != null ? raw.away.slice() : new Array(UNIT_KEYS.length).fill(0);
       event.diedVec = (raw.row3 || []).slice();
       event.survVec = surv.slice();
+
       if (!isAllZero(event.homeVec)) event.lines.push(fmtLine(T.home, event.homeVec));
       if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died, event.diedVec));
       if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
       if (event.awayKnown) event.lines.push(fmtLine(T.away, event.awayVec));
+
     } else if (raw.iAmDef && raw.side === 'att') {
       event.sentVec = (raw.row2 || []).slice();
       event.diedVec = (raw.row3 || []).slice();
@@ -817,18 +823,20 @@ javascript:(function () {
         event.type = 'OFF_FULL_KILL';
         event.strength = 2;
         event.confidence = 'medium';
+
         event.intelOrigin = 'attack_event';
         event.knowledgeScope = 'destroyed_main_off';
-        event.intelOrigin = 'village_snapshot';
-        event.knowledgeScope = raw.away != null ? 'home_and_away' : 'home_only';
+
         event.mainOffDestroyed = 1;
         if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died100, event.diedVec));
       } else {
         event.type = 'ATTACK_EVENT';
         event.strength = 1;
         event.confidence = 'low';
+
         event.intelOrigin = 'attack_event';
         event.knowledgeScope = 'sent_only';
+
         if (vecEqual(event.sentVec, event.diedVec)) {
           if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died100, event.diedVec));
         } else {
@@ -836,14 +844,18 @@ javascript:(function () {
           if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
         }
       }
+
     } else {
       event.type = 'ATTACK_EVENT';
       event.strength = 1;
+
+      event.intelOrigin = 'attack_event';
+      event.knowledgeScope = 'sent_only';
+
       event.sentVec = (raw.row2 || []).slice();
       event.diedVec = (raw.row3 || []).slice();
       event.survVec = surv.slice();
-      event.intelOrigin = 'attack_event';
-      event.knowledgeScope = 'sent_only';
+
       if (!isAllZero(event.sentVec)) event.lines.push(fmtLine('Stav', event.sentVec));
       if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
     }
