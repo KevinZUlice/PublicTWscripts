@@ -805,9 +805,16 @@ javascript:(function () {
     const existingText = await kz_fetchVillageNoteText(villageId);
     const current = kz_buildStateFromExistingNote(existingText);
     const merged = kz_mergeState(current.state, event);
-    const kzBlockText = kz_renderKzBlock(merged.state);
-    const finalNote = [kzBlockText, current.outsideText].filter(Boolean).join('\n\n').trim();
-    return { note: finalNote, snapshotUpdated: merged.snapshotUpdated, historyAdded: merged.historyAdded };
+
+    // AGRESIVNÍ REŽIM:
+    // vždy přepisujeme celou poznámku jen naším managed formátem
+    const finalNote = kz_renderKzBlock(merged.state);
+
+    return {
+      note: finalNote,
+      snapshotUpdated: merged.snapshotUpdated,
+      historyAdded: merged.historyAdded,
+    };
   }
 
   function getNamesAndVillageIds() {
