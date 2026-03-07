@@ -424,11 +424,15 @@ javascript:(function () {
     const lines = [];
 
     if (iAmDef && side === 'att') {
+
+      // 100% kill
       if (vecEqual(row2, row3)) {
         if (!isAllZero(row3)) lines.push(fmtLine(T.died100, row3));
-      } else {
+      }
+
+      // něco přežilo
+      else {
         if (!isAllZero(row2)) lines.push(fmtLine(T.sent, row2));
-        if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
         if (!isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
       }
     } else if (iAmAtt && side === 'def') {
@@ -575,11 +579,15 @@ javascript:(function () {
     const lines = [];
 
     if (iAmDef && side === 'att') {
+
+      // 100% kill
       if (vecEqual(row2, row3)) {
         if (!isAllZero(row3)) lines.push(fmtLine(T.died100, row3));
-      } else {
+      }
+
+      // něco přežilo
+      else {
         if (!isAllZero(row2)) lines.push(fmtLine(T.sent, row2));
-        if (!isAllZero(row3)) lines.push(fmtLine(T.died, row3));
         if (!isAllZero(surv)) lines.push(fmtLine(T.survived, surv));
       }
     } else if (iAmAtt && side === 'def') {
