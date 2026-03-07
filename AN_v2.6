@@ -733,18 +733,30 @@ javascript:(function () {
   }
 
   function kz_buildStateFromExistingNote(existingText) {
-    const kzBlock = kz_extractKzBlock(existingText);
-    if (kzBlock) {
+    const text = String(existingText || '');
+
+    // nová v2.6 managed poznámka
+    if (text.includes(KZ_META_START) || text.includes(KZ_HISTORY_START)) {
       return {
-        state: kz_parseStateFromKZBlock(kzBlock.block),
-        outsideText: [kzBlock.before, kzBlock.after].filter(Boolean).join('\n\n').trim(),
-        hadKzBlock: true,
+        state: kz_parseStateFromManagedNote(text),
+        hadManagedBlock: true,
       };
     }
 
-    const legacyState = kz_parseLegacyState(existingText);
-    const outsideText = kz_isLikelyLegacyAutoNote(existingText) ? '' : String(existingText || '').trim();
-    return { state: legacyState, outsideText, hadKzBlock: false };
+    // legacy v2.5 / starší AutoNote
+    const legacyState = kz_parseLegacyState(text);
+    if (legacyState?.snapshot) {
+      return {
+        state: legacyState,
+        hadManagedBlock: false,
+      };
+    }
+
+    // cokoliv jiného ignorujeme, protože jedeme agresivní full overwrite
+    return {
+      state: { snapshot: null, history: [] },
+      hadManagedBlock: false,
+    };
   }
 
   function kz_mergeState(existingState, event) {
