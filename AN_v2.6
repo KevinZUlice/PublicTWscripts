@@ -633,25 +633,23 @@ javascript:(function () {
       .map(ev => ev.rawLine || kz_renderHistoryLine(ev));
 
     return [
-      KZ_BLOCK_START,
-
-      KZ_SNAPSHOT_START,
       kz_renderSnapshot(state.snapshot),
-      KZ_SNAPSHOT_END,
-      
-      '[spoiler=KZ Meta]',
+
+      '',
+      '[spoiler=Data]',
+      KZ_BLOCK_START,
       KZ_META_START,
       kz_renderMeta(state.snapshot),
       KZ_META_END,
       '[/spoiler]',
 
-      '[spoiler=KZ Historie]',
+      '',
+      '[spoiler=Historie]',
       KZ_HISTORY_START,
       historyLines.join('\n'),
       KZ_HISTORY_END,
-      '[/spoiler]',
-
       KZ_BLOCK_END,
+      '[/spoiler]',
     ].join('\n');
   }
 
