@@ -571,30 +571,76 @@ javascript:(function () {
     return false;
   }
 
+  function kz_getTagColor(tag) {
+    const t = String(tag || '').toLowerCase();
+    if (t === 'off') return '#ff0000';
+    if (t === 'deff') return '#2f6fff';
+    return '#666666';
+  }
+
+  function kz_colorLabel(label, color) {
+    return `[color=${color}][b]${label}:[/b][/color]`;
+  }
+
+  function kz_fmtLineStyled(label, vec, color) {
+    const parts = [];
+    for (let i = 0; i < UNIT_KEYS.length; i++) {
+      const n = vec?.[i] || 0;
+      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${n}`);
+    }
+    return `${kz_colorLabel(label, color)} ${parts.length ? parts.join(' ') : '—'}`;
+  }
+
   function kz_renderSnapshot(snapshot) {
     if (!snapshot) return 'Bez snapshotu';
 
-    const tagUpper = String(snapshot.scoreTag || 'mix').toUpperCase();
-    const line1 = `${snapshot.battleTime} | ${Number(snapshot.scoreValue || 0).toFixed(1)} ${snapshot.scoreTag || 'mix'} | ${tagUpper} | jistota: ${kz_confidenceLabel(snapshot.confidence)}`;
-    const lines = [line1];
+    const scoreTag = String(snapshot.scoreTag || 'mix').toLowerCase();
+    const scoreColor = kz_getTagColor(scoreTag);
+    const tagUpper = scoreTag === 'off' ? 'OFF' : (scoreTag === 'deff' ? 'DEFF' : 'MIX');
 
+    const header =
+      `[b]${snapshot.battleTime}[/b] | ` +
+      `[i]${Number(snapshot.scoreValue || 0).toFixed(1)} ${scoreTag}[/i] | ` +
+      `[color=${scoreColor}][b]${tagUpper}[/b][/color] | ` +
+      `jistota: ${kz_confidenceLabel(snapshot.confidence)}`;
+
+    const lines = [header];
+
+    // spy / snapshot intel
     if (snapshot.type === 'FULL_SNAPSHOT' || snapshot.type === 'PARTIAL_SNAPSHOT') {
-      lines.push(fmtLine(T.home, snapshot.homeVec || []));
-      if (snapshot.awayKnown) lines.push(fmtLine(T.away, snapshot.awayVec || []));
-      else lines.push('Mimo vesnici: neznámé');
+      lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
+
+      if (snapshot.awayKnown) {
+        lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff'));
+      } else {
+        lines.push(`${kz_colorLabel('Mimo vesnici', '#7a4fff')} neznámé`);
+      }
+
       return lines.join('\n');
     }
 
+    // full off kill
     if (snapshot.type === 'OFF_FULL_KILL') {
-      lines.push(`[b]Hlavní off zničena:[/b] ${kz_compactVec(snapshot.diedVec || snapshot.sentVec || [], 'off', 5)}`);
-      lines.push('Mimo vesnici: neznámé');
+      lines.push(
+        `[color=#ff0000][b]Hlavní off zničena:[/b][/color] ` +
+        `${kz_compactVec(snapshot.diedVec || snapshot.sentVec || [], 'off', 5)}`
+      );
+      lines.push(`${kz_colorLabel('Mimo vesnici', '#7a4fff')} neznámé`);
       return lines.join('\n');
     }
 
+    // běžná attack event větev
     if (snapshot.type === 'ATTACK_EVENT') {
-      if (!isAllZero(snapshot.sentVec || [])) lines.push(fmtLine(T.sent, snapshot.sentVec || []));
-      if (!isAllZero(snapshot.survVec || [])) lines.push(fmtLine(T.survived, snapshot.survVec || []));
-      else if (!isAllZero(snapshot.diedVec || [])) lines.push(fmtLine(T.died100, snapshot.diedVec || []));
+      if (!isAllZero(snapshot.sentVec || [])) {
+        lines.push(kz_fmtLineStyled(T.sent, snapshot.sentVec || [], '#d97706')); // oranžová
+      }
+
+      if (!isAllZero(snapshot.survVec || [])) {
+        lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a')); // zelená
+      } else if (!isAllZero(snapshot.diedVec || [])) {
+        lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000')); // červená
+      }
+
       return lines.join('\n');
     }
 
