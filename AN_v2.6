@@ -628,18 +628,29 @@ javascript:(function () {
   }
 
   function kz_renderKzBlock(state) {
-    const historyLines = kz_sortHistory(state.history || []).slice(0, HISTORY_LIMIT).map(ev => ev.rawLine || kz_renderHistoryLine(ev));
+    const historyLines = kz_sortHistory(state.history || [])
+      .slice(0, HISTORY_LIMIT)
+      .map(ev => ev.rawLine || kz_renderHistoryLine(ev));
+
     return [
       KZ_BLOCK_START,
-      KZ_META_START,
-      kz_renderMeta(state.snapshot),
-      KZ_META_END,
+
       KZ_SNAPSHOT_START,
       kz_renderSnapshot(state.snapshot),
       KZ_SNAPSHOT_END,
+      
+      '[spoiler=KZ Meta]',
+      KZ_META_START,
+      kz_renderMeta(state.snapshot),
+      KZ_META_END,
+      '[/spoiler]',
+
+      '[spoiler=KZ Historie]',
       KZ_HISTORY_START,
       historyLines.join('\n'),
       KZ_HISTORY_END,
+      '[/spoiler]',
+
       KZ_BLOCK_END,
     ].join('\n');
   }
