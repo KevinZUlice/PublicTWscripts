@@ -447,9 +447,9 @@ javascript:(function () {
     };
   }
 
-  function kz_parseStateFromKZBlock(blockText) {
-    const metaText = kz_extractSection(blockText, KZ_META_START, KZ_META_END);
-    const historyText = kz_extractSection(blockText, KZ_HISTORY_START, KZ_HISTORY_END);
+  function kz_parseStateFromManagedNote(noteText) {
+    const metaText = kz_extractSection(noteText, KZ_META_START, KZ_META_END);
+    const historyText = kz_extractSection(noteText, KZ_HISTORY_START, KZ_HISTORY_END);
     const meta = kz_parseMetaBlock(metaText);
 
     const snapshotType = meta.snapshot_type || 'UNKNOWN';
@@ -474,7 +474,11 @@ javascript:(function () {
       survVec: kz_csvToVec(meta.surv_vec || ''),
     };
 
-    const history = String(historyText || '').split(/\r?\n/).map(kz_parseHistoryLine).filter(Boolean);
+    const history = String(historyText || '')
+      .split(/\r?\n/)
+      .map(kz_parseHistoryLine)
+      .filter(Boolean);
+
     return { snapshot, history };
   }
 
@@ -634,21 +638,17 @@ javascript:(function () {
 
     return [
       kz_renderSnapshot(state.snapshot),
-
       '',
       '[spoiler=Data]',
-      KZ_BLOCK_START,
       KZ_META_START,
       kz_renderMeta(state.snapshot),
       KZ_META_END,
       '[/spoiler]',
-
       '',
       '[spoiler=Historie]',
       KZ_HISTORY_START,
       historyLines.join('\n'),
       KZ_HISTORY_END,
-      KZ_BLOCK_END,
       '[/spoiler]',
     ].join('\n');
   }
