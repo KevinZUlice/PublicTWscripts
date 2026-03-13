@@ -227,6 +227,21 @@ javascript:(function () {
     return parts.slice(0, UNIT_KEYS.length);
   }
 
+  function kz_encodeList(items) {
+    return (Array.isArray(items) ? items : [])
+      .map(x => String(x || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .join(' || ');
+  }
+
+  function kz_decodeList(s) {
+    if (!s) return [];
+    return String(s)
+      .split(/\s*\|\|\s*/)
+      .map(x => x.trim())
+      .filter(Boolean);
+  }
+
   function kz_confidenceLabel(conf) {
     if (conf === 'high') return 'vysoká';
     if (conf === 'medium') return 'střední';
@@ -473,6 +488,7 @@ javascript:(function () {
       scoreValue: parseFloat(meta.score_value || '0') || 0,
       scoreTag: (meta.score_tag || 'mix').toLowerCase(),
       confidence: meta.confidence || 'low',
+      attackType: meta.attack_type || 'UNKNOWN',
 
       intelOrigin: meta.intel_origin || 'unknown',
       knowledgeScope: meta.knowledge_scope || 'unknown',
@@ -487,6 +503,8 @@ javascript:(function () {
       sentVec: kz_csvToVec(meta.sent_vec || ''),
       diedVec: kz_csvToVec(meta.died_vec || ''),
       survVec: kz_csvToVec(meta.surv_vec || ''),
+      enemyBonuses: kz_decodeList(meta.enemy_bonuses || ''),
+      buildingDamage: kz_decodeList(meta.building_damage || ''),
     };
 
     const history = String(historyText || '')
@@ -509,6 +527,7 @@ javascript:(function () {
     if (event.type === 'OFF_FULL_KILL') return `hlavní off zničena: ${kz_compactVec(event.diedVec || event.sentVec, 'off', 4)}`;
     if (event.type === 'ATTACK_EVENT') {
       if (vecEqual(event.sentVec || [], event.diedVec || [])) return `Padlo 100%: ${kz_compactVec(event.diedVec || [], event.villageTag, 4)}`;
+      if (event.attackType === 'CATA_STRIKE' && (event.buildingDamage || []).length) return `kata: ${(event.buildingDamage || []).join('; ')}`;
       return `poslal ${kz_compactVec(event.sentVec || [], event.villageTag, 3)} → přežilo ${kz_compactVec(event.survVec || [], event.villageTag, 3)}`;
     }
     return 'neznámá událost';
@@ -550,7 +569,8 @@ javascript:(function () {
       scoreValue: event.scoreValue,
       scoreTag: event.scoreTag,
       confidence: event.confidence,
-      
+      attackType: event.attackType || 'UNKNOWN',
+
       intelOrigin: event.intelOrigin || 'unknown',
       knowledgeScope: event.knowledgeScope || 'unknown',
     
@@ -564,6 +584,8 @@ javascript:(function () {
       sentVec: event.sentVec || new Array(UNIT_KEYS.length).fill(0),
       diedVec: event.diedVec || new Array(UNIT_KEYS.length).fill(0),
       survVec: event.survVec || new Array(UNIT_KEYS.length).fill(0),
+      enemyBonuses: Array.isArray(event.enemyBonuses) ? event.enemyBonuses.slice() : [],
+      buildingDamage: Array.isArray(event.buildingDamage) ? event.buildingDamage.slice() : [],
     };
   }
 
@@ -621,83 +643,76 @@ javascript:(function () {
       `[b]${snapshot.battleTime}[/b] | ` +
       `[i]${Number(snapshot.scoreValue || 0).toFixed(1)} ${scoreTag}[/i] | ` +
       `[color=${scoreColor}][b]${tagUpper}[/b][/color] | ` +
-      `jistota: ${kz_confidenceLabel(snapshot.confidence)}`;
+      `jistota: ${kz_confidenceLabel(snapshot.confidence)} | ` +
+      `typ: ${snapshot.attackType || 'UNKNOWN'}`;
 
     const lines = [header];
+
+    const appendExtras = () => {
+      if (Array.isArray(snapshot.enemyBonuses) && snapshot.enemyBonuses.length) {
+        lines.push(`${kz_colorLabel('Bonusy cíle', '#7c3aed')} ${snapshot.enemyBonuses.join(' | ')}`);
+      }
+      if (Array.isArray(snapshot.buildingDamage) && snapshot.buildingDamage.length) {
+        for (const dmg of snapshot.buildingDamage) {
+          lines.push(`${kz_colorLabel('Poškození budov', '#b45309')} ${dmg}`);
+        }
+      }
+    };
 
     const origin = String(snapshot.intelOrigin || 'unknown');
     const scope = String(snapshot.knowledgeScope || 'unknown');
 
-    // skutečný snapshot vesnice
     if (origin === 'village_snapshot') {
-      if (!isAllZero(snapshot.homeVec || [])) {
-        lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
-      }
+      if (!isAllZero(snapshot.homeVec || [])) lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
+      if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
 
       if (scope === 'home_and_away') {
-        if (!isAllZero(snapshot.awayVec || [])) {
-          lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff'));
-        } else {
-          lines.push(`${kz_colorLabel('Měl mimo', '#7a4fff')} —`);
-        }
+        if (!isAllZero(snapshot.awayVec || [])) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff'));
+        else lines.push(`${kz_colorLabel('Měl mimo', '#7a4fff')} —`);
       } else if (scope === 'home_only') {
         lines.push(`${kz_colorLabel('Mimo vesnici', '#7a4fff')} neznámé`);
       }
 
+      appendExtras();
       return lines.join('\n');
     }
 
-    // závěr z útoku: hlavní off zničena
     if (origin === 'attack_event' && scope === 'destroyed_main_off') {
-      lines.push(
-        `[color=#ff0000][b]Hlavní off zničena:[/b][/color] ` +
-        `${kz_compactVec(snapshot.diedVec || snapshot.sentVec || [], 'off', 5)}`
-      );
+      lines.push(`[color=#ff0000][b]Hlavní off zničena:[/b][/color] ${kz_compactVec(snapshot.diedVec || snapshot.sentVec || [], 'off', 5)}`);
+      appendExtras();
       return lines.join('\n');
     }
 
-    // víme jen co poslal
     if (origin === 'attack_event' && scope === 'sent_only') {
-      if (!isAllZero(snapshot.sentVec || [])) {
-        lines.push(kz_fmtLineStyled(T.sent, snapshot.sentVec || [], '#d97706'));
-      }
-
-      if (!isAllZero(snapshot.survVec || [])) {
-        lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
-      } else if (!isAllZero(snapshot.diedVec || [])) {
-        lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000'));
-      }
-
+      if (!isAllZero(snapshot.sentVec || [])) lines.push(kz_fmtLineStyled(T.sent, snapshot.sentVec || [], '#d97706'));
+      if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
+      else if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000'));
+      appendExtras();
       return lines.join('\n');
     }
 
-    // fallback na starší metadata / přechodné stavy
     if (snapshot.type === 'FULL_SNAPSHOT' || snapshot.type === 'PARTIAL_SNAPSHOT') {
       lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
-      if (snapshot.awayKnown) {
-        lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff'));
-      }
+      if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
+      if (snapshot.awayKnown) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff'));
+      appendExtras();
       return lines.join('\n');
     }
 
     if (snapshot.type === 'OFF_FULL_KILL') {
-      lines.push(
-        `[color=#ff0000][b]Hlavní off zničena:[/b][/color] ` +
-        `${kz_compactVec(snapshot.diedVec || snapshot.sentVec || [], 'off', 5)}`
-      );
+      lines.push(`[color=#ff0000][b]Hlavní off zničena:[/b][/color] ${kz_compactVec(snapshot.diedVec || snapshot.sentVec || [], 'off', 5)}`);
+      appendExtras();
       return lines.join('\n');
     }
 
     if (snapshot.type === 'ATTACK_EVENT') {
-      if (!isAllZero(snapshot.sentVec || [])) {
-        lines.push(kz_fmtLineStyled(T.sent, snapshot.sentVec || [], '#d97706'));
-      }
-      if (!isAllZero(snapshot.survVec || [])) {
-        lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
-      }
+      if (!isAllZero(snapshot.sentVec || [])) lines.push(kz_fmtLineStyled(T.sent, snapshot.sentVec || [], '#d97706'));
+      if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
+      appendExtras();
       return lines.join('\n');
     }
 
+    appendExtras();
     lines.push('Bez čitelného snapshotu');
     return lines.join('\n');
   }
@@ -705,13 +720,13 @@ javascript:(function () {
   function kz_renderMeta(snapshot) {
     const snap = snapshot || {
       battleTime: '', type: 'UNKNOWN', strength: 0, villageTag: 'mix', scoreValue: 0,
-      scoreTag: 'mix', confidence: 'low',
+      scoreTag: 'mix', confidence: 'low', attackType: 'UNKNOWN',
 
       intelOrigin: 'unknown',
       knowledgeScope: 'unknown',
       
       homeKnown: 0, awayKnown: 0, mainOffDestroyed: 0,
-      sourceUser: '', sourceReport: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: []
+      sourceUser: '', sourceReport: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: [], enemyBonuses: [], buildingDamage: []
     };
 
     return [
@@ -723,6 +738,7 @@ javascript:(function () {
       `score_value=${Number(snap.scoreValue || 0).toFixed(1)}`,
       `score_tag=${snap.scoreTag || 'mix'}`,
       `confidence=${snap.confidence || 'low'}`,
+      `attack_type=${snap.attackType || 'UNKNOWN'}`,
 
       `intel_origin=${snap.intelOrigin || 'unknown'}`,
       `knowledge_scope=${snap.knowledgeScope || 'unknown'}`,
@@ -737,6 +753,8 @@ javascript:(function () {
       `sent_vec=${kz_vecToCsv(snap.sentVec)}`,
       `died_vec=${kz_vecToCsv(snap.diedVec)}`,
       `surv_vec=${kz_vecToCsv(snap.survVec)}`,
+      `enemy_bonuses=${kz_encodeList(snap.enemyBonuses)}`,
+      `building_damage=${kz_encodeList(snap.buildingDamage)}`,
     ].join('\n');
   }
 
@@ -762,6 +780,41 @@ javascript:(function () {
     ].join('\n');
   }
 
+  function kz_parseEnhancementsFromDoc(doc, side) {
+    const box = side === 'att' ? '#attack_info_att' : '#attack_info_def';
+    const rows = Array.from(doc.querySelectorAll(`${box} tr`));
+    for (const tr of rows) {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < 2) continue;
+      const key = (tds[0].textContent || '').replace(/\s+/g, ' ').trim();
+      if (key !== 'Vylepšení:') continue;
+      return (tds[1].innerText || tds[1].textContent || '')
+        .split(/\r?\n/)
+        .map(x => x.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+    }
+    return [];
+  }
+
+  function kz_parseBuildingDamageFromDoc(doc) {
+    const out = [];
+    const rows = Array.from(doc.querySelectorAll('#content_value table.vis tr'));
+    for (const tr of rows) {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < 2) continue;
+      const key = (tds[0].textContent || '').replace(/\s+/g, ' ').trim();
+      if (key !== 'Škoda vzniklá střelbou z katapultu:' && key !== 'Škoda vzniklá beranidlem:') continue;
+      const val = (tds[1].textContent || '').replace(/\s+/g, ' ').trim();
+      if (!val) continue;
+      out.push(`${key} ${val}`);
+    }
+    return out;
+  }
+
+  function kz_zeroVec() {
+    return new Array(UNIT_KEYS.length).fill(0);
+  }
+
   function kz_buildEventFromRaw(raw) {
     const enemyVecForClass = kz_getEnemyVecForClassification(raw);
     const cls = classify(enemyVecForClass);
@@ -776,6 +829,7 @@ javascript:(function () {
       scoreValue: cls.score,
       scoreTag: cls.tag,
       confidence: 'low',
+      attackType: 'UNKNOWN',
 
       intelOrigin: 'unknown',
       knowledgeScope: 'unknown',
@@ -792,6 +846,8 @@ javascript:(function () {
       survVec: new Array(UNIT_KEYS.length).fill(0),
       summary: '',
       lines: [],
+      enemyBonuses: Array.isArray(raw.enemyBonuses) ? raw.enemyBonuses.slice() : [],
+      buildingDamage: Array.isArray(raw.buildingDamage) ? raw.buildingDamage.slice() : [],
     };
 
     if (raw.iAmAtt && raw.side === 'def') {
@@ -801,6 +857,7 @@ javascript:(function () {
 
       event.intelOrigin = 'village_snapshot';
       event.knowledgeScope = raw.away != null ? 'home_and_away' : 'home_only';
+      event.attackType = 'SPY_SNAPSHOT';
 
       event.homeKnown = 1;
       event.awayKnown = raw.away != null ? 1 : 0;
@@ -826,6 +883,7 @@ javascript:(function () {
 
         event.intelOrigin = 'attack_event';
         event.knowledgeScope = 'destroyed_main_off';
+        event.attackType = 'OFF_FULL_KILL';
 
         event.mainOffDestroyed = 1;
         if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died100, event.diedVec));
@@ -836,6 +894,7 @@ javascript:(function () {
 
         event.intelOrigin = 'attack_event';
         event.knowledgeScope = 'sent_only';
+        event.attackType = (raw.catapultSent || 0) > 0 ? ((event.buildingDamage || []).length ? 'CATA_STRIKE' : 'CATA_ATTACK') : 'STANDARD_ATTACK';
 
         if (vecEqual(event.sentVec, event.diedVec)) {
           if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died100, event.diedVec));
@@ -851,6 +910,7 @@ javascript:(function () {
 
       event.intelOrigin = 'attack_event';
       event.knowledgeScope = 'sent_only';
+      event.attackType = (raw.catapultSent || 0) > 0 ? ((event.buildingDamage || []).length ? 'CATA_STRIKE' : 'CATA_ATTACK') : 'STANDARD_ATTACK';
 
       event.sentVec = (raw.row2 || []).slice();
       event.diedVec = (raw.row3 || []).slice();
@@ -1005,14 +1065,17 @@ javascript:(function () {
     const targetId = (href.match(/[?&]id=(\d+)/) || [])[1];
     if (!targetId) return;
 
-    const tabSel = side === 'att' ? '#attack_info_att_units' : '#attack_info_def_units';
-    const row2 = kz_parseVecFromUnitsTableDoc(doc, tabSel, 2);
-    const row3 = kz_parseVecFromUnitsTableDoc(doc, tabSel, 3);
-    if (!row2 || !row3) return;
+    const attRow2 = kz_parseVecFromUnitsTableDoc(doc, '#attack_info_att_units', 2) || kz_zeroVec();
+    const attRow3 = kz_parseVecFromUnitsTableDoc(doc, '#attack_info_att_units', 3) || kz_zeroVec();
+    const defRow2 = kz_parseVecFromUnitsTableDoc(doc, '#attack_info_def_units', 2) || kz_zeroVec();
+    const defRow3 = kz_parseVecFromUnitsTableDoc(doc, '#attack_info_def_units', 3) || kz_zeroVec();
+
+    const row2 = side === 'att' ? attRow2 : defRow2;
+    const row3 = side === 'att' ? attRow3 : defRow3;
 
     let away = null;
     if (side === 'def' && doc.querySelector('#attack_spy_away')) {
-      const tds = Array.from(doc.querySelectorAll('#attack_spy_away > tbody > tr:nth-child(2) > td:nth-child(2) table tbody tr:nth-child(2) > td'));
+      const tds = Array.from(doc.querySelectorAll('#attack_spy_away > tbody > tr:nth-child(2) > td table tbody tr:nth-child(2) > td'));
       if (tds.length) {
         away = [];
         for (let i = 0; i < Math.min(tds.length, UNIT_KEYS.length); i++) away[i] = parseInt((tds[i].textContent || '0').trim(), 10) || 0;
@@ -1026,6 +1089,9 @@ javascript:(function () {
       survVec: vecSub(row2, row3),
       battleTime: kz_getBattleDateTextFromDoc(doc),
       sourceReport: kz_extractReportIdFromUrl(sourceUrl || doc.URL || ''),
+      catapultSent: iAmAtt ? (attRow2[UNIT_INDEX.catapult] || 0) : (row2[UNIT_INDEX.catapult] || 0),
+      enemyBonuses: kz_parseEnhancementsFromDoc(doc, side === 'def' ? 'def' : 'att'),
+      buildingDamage: kz_parseBuildingDamageFromDoc(doc),
     });
 
     await kz_processEventForVillage(targetId, event);
@@ -1110,14 +1176,13 @@ javascript:(function () {
     const iAmDef = (defName === ME);
     const iAmAtt = (attName === ME);
     const targetId = side === 'att' ? attId : defId;
-    const tabSel = side === 'att' ? '#attack_info_att_units' : '#attack_info_def_units';
 
-    const row2 = parseVecFromUnitsTable(tabSel, 2);
-    const row3 = parseVecFromUnitsTable(tabSel, 3);
-    if (!row2 || !row3) {
-      UI.ErrorMessage('KZ: Nenašel jsem řádky jednotek (Počet/Ztráty).', 4000);
-      return;
-    }
+    const attRow2 = parseVecFromUnitsTable('#attack_info_att_units', 2) || kz_zeroVec();
+    const attRow3 = parseVecFromUnitsTable('#attack_info_att_units', 3) || kz_zeroVec();
+    const defRow2 = parseVecFromUnitsTable('#attack_info_def_units', 2) || kz_zeroVec();
+    const defRow3 = parseVecFromUnitsTable('#attack_info_def_units', 3) || kz_zeroVec();
+    const row2 = side === 'att' ? attRow2 : defRow2;
+    const row3 = side === 'att' ? attRow3 : defRow3;
 
     let away = null;
     if (side === 'def' && $('#attack_spy_away').length) {
@@ -1135,6 +1200,9 @@ javascript:(function () {
       survVec: vecSub(row2, row3),
       battleTime: kz_getBattleDateText(),
       sourceReport: kz_extractReportIdFromUrl(location.href),
+      catapultSent: iAmAtt ? (attRow2[UNIT_INDEX.catapult] || 0) : (row2[UNIT_INDEX.catapult] || 0),
+      enemyBonuses: side === 'def' ? kz_parseEnhancementsFromDoc(document, 'def') : kz_parseEnhancementsFromDoc(document, 'att'),
+      buildingDamage: kz_parseBuildingDamageFromDoc(document),
     });
 
     try {
