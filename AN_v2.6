@@ -131,6 +131,15 @@ javascript:(function () {
 
     const offScore = Math.min(1, off / 15000);
     const deffScore = Math.min(1, deff / 20000);
+    const axeIdx = UNIT_INDEX.axe;
+    const hasAxe = axeIdx != null && ((vec?.[axeIdx] || 0) > 0);
+
+    // KZ pravidlo: pokud jsou vidět sekery (doma nebo mimo), je to OFF vesnice
+    if (hasAxe) {
+      const roundedOff = Math.round(offScore * 10) / 10;
+      const score = (offScore >= 1) ? 1.0 : Math.max(0.5, roundedOff);
+      return { text: T.offensive, color: '#ff0000', score, tag: 'off' };
+    }
 
     if (off > deff) {
       const score = Math.round(offScore * 10) / 10;
@@ -694,11 +703,11 @@ javascript:(function () {
 
     const scoreTag = String(snapshot.scoreTag || 'deff').toLowerCase();
     const scoreColor = kz_getTagColor(scoreTag);
-    const tagUpper = scoreTag === 'off' ? 'OFF' : 'DEFF';
+    const tagUpper = scoreTag === 'off' ? ((Number(snapshot.scoreValue || 0) >= 1.0) ? 'NUKE' : 'OFF') : 'DEFF';
 
     const header =
       `[b]${snapshot.battleTime}[/b] | ` +
-      `[i]${Number(snapshot.scoreValue || 0).toFixed(1)} ${scoreTag}[/i] | ` +
+      `[i]${Number(snapshot.scoreValue || 0).toFixed(1)} / ${scoreTag.toUpperCase()}[/i] | ` +
       `[color=${scoreColor}][b]${tagUpper}[/b][/color]`;
 
     const lines = [header];
