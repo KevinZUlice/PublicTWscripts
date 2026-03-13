@@ -258,6 +258,26 @@ javascript:(function () {
       .filter(Boolean);
   }
 
+  function kz_mergeBonusesByUnit(lines) {
+    const groups = new Map();
+    for (const raw of (Array.isArray(lines) ? lines : [])) {
+      const txt = String(raw || '').replace(/\s+/g, ' ').trim();
+      if (!txt) continue;
+      const m = txt.match(/^([^:]+):\s*(.+)$/);
+      const key = m ? m[1].replace(/\s+/g, ' ').trim() : txt;
+      const val = m ? m[2].trim() : '';
+      if (!groups.has(key)) groups.set(key, []);
+      if (val) groups.get(key).push(val);
+    }
+
+    const out = [];
+    for (const [key, vals] of groups.entries()) {
+      if (!vals.length) out.push(key);
+      else out.push(`${key}: ${vals.join(' | ')}`);
+    }
+    return out;
+  }
+
   function kz_confidenceLabel(conf) {
     if (conf === 'high') return 'vysoká';
     if (conf === 'medium') return 'střední';
@@ -721,7 +741,14 @@ javascript:(function () {
 
     if (origin === 'village_snapshot') {
       if (!isAllZero(snapshot.homeVec || [])) lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
-      if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
+
+      const allHomeDied = !isAllZero(snapshot.homeVec || []) && vecEqual(snapshot.homeVec || [], snapshot.diedVec || []);
+      if (allHomeDied) {
+        lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000'));
+      } else {
+        if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
+        if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
+      }
 
       if (scope === 'home_and_away') {
         if (!isAllZero(snapshot.awayVec || [])) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff'));
@@ -833,7 +860,7 @@ javascript:(function () {
       .map(ev => ev.rawLine || kz_renderHistoryLine(ev));
 
     const bonusLines = Array.isArray(state?.snapshot?.enemyBonuses)
-      ? state.snapshot.enemyBonuses.map(x => `• ${x}`)
+      ? kz_mergeBonusesByUnit(state.snapshot.enemyBonuses).map(x => `• ${x}`)
       : [];
 
     return [
