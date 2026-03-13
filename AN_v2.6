@@ -697,16 +697,18 @@ javascript:(function () {
         lines.push(`${kz_colorLabel('Obránce', '#1d4ed8')} ${d.join(' | ')}`);
       }
       if (Array.isArray(snapshot.buildingDamage) && snapshot.buildingDamage.length) {
-        for (const dmg of snapshot.buildingDamage) {
-          lines.push(`${kz_colorLabel('Poškození budov', '#b45309')} ${dmg}`);
-        }
+        const compact = snapshot.buildingDamage
+          .map(kz_formatBuildingDamageLine)
+          .filter(Boolean)
+          .join(' | ');
+        if (compact) lines.push(`${kz_colorLabel('Poškození budov', '#b45309')} ${compact}`);
       }
 
       const contextParts = [];
       if (snapshot.attackSizeIcon) contextParts.push(snapshot.attackSizeIcon);
-      if (snapshot.targetPlayerName) contextParts.push(`na hráče [b]${snapshot.targetPlayerName}[/b]`);
+      if (snapshot.targetPlayerName) contextParts.push(`[b]${snapshot.targetPlayerName}[/b]`);
       if (snapshot.attackLuck) contextParts.push(`${kz_luckIcon()} ${snapshot.attackLuck}`);
-      if (snapshot.morale) contextParts.push(`Morálka ${snapshot.morale}`);
+      if (snapshot.morale && !/^100\s*%?$/.test(String(snapshot.morale).trim())) contextParts.push(`Morálka ${snapshot.morale}`);
       if (snapshot.defenderFlag) contextParts.push(`Vlajka ${snapshot.defenderFlag}`);
 
       if (contextParts.length) {
@@ -870,6 +872,53 @@ javascript:(function () {
     return [];
   }
 
+  function kz_buildingCodeFromName(name) {
+    const key = String(name || '').toLowerCase().trim();
+    const m = {
+      'hlavní budova': 'main',
+      'kasárna': 'barracks',
+      'stáj': 'stable',
+      'dílna': 'garage',
+      'kovárna': 'smith',
+      'nádvoří': 'place',
+      'tržiště': 'market',
+      'dřevorubec': 'wood',
+      'lom na těžbu hlíny': 'stone',
+      'železný důl': 'iron',
+      'selský dvůr': 'farm',
+      'skladiště': 'storage',
+      'skrýš': 'hide',
+      'hradby': 'wall',
+      'socha': 'statue',
+      'panský dvůr': 'snob',
+      'kostel': 'church',
+      'první kostel': 'church_f',
+      'strážní věž': 'watchtower',
+      'shromaždiště': 'place',
+    };
+    return m[key] || '';
+  }
+
+  function kz_formatBuildingDamageLine(rawLine) {
+    const text = String(rawLine || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+
+    const m = text.match(/([^:]+?)\s+poškozen[yaé]?\s+ze\s+stupně\s+(\d+)\s+na\s+stupeň\s+(\d+)/i);
+    if (m) {
+      const bName = m[1].trim();
+      const from = m[2];
+      const to = m[3];
+      const code = kz_buildingCodeFromName(bName);
+      const icon = code ? `[building]${code}[/building]` : `[b]${bName}[/b]`;
+      return `${icon} ${from}>${to}`;
+    }
+
+    return text
+      .replace(/^Škoda\s+vzniklá\s+střelbou\s+z\s+katapultu:\s*/i, '')
+      .replace(/^Škoda\s+vzniklá\s+beranidlem:\s*/i, '')
+      .trim();
+  }
+
   function kz_parseBuildingDamageFromDoc(doc) {
     const out = [];
     const rows = Array.from(doc.querySelectorAll('#attack_results tr'));
@@ -881,7 +930,8 @@ javascript:(function () {
       if (key !== 'Škoda vzniklá střelbou z katapultu:' && key !== 'Škoda vzniklá beranidlem:') continue;
       const val = (td.textContent || '').replace(/\s+/g, ' ').trim();
       if (!val) continue;
-      out.push(`${key} ${val}`);
+      const parsed = kz_formatBuildingDamageLine(`${key} ${val}`);
+      if (parsed) out.push(parsed);
     }
     return out;
   }
