@@ -505,6 +505,13 @@ javascript:(function () {
       survVec: kz_csvToVec(meta.surv_vec || ''),
       enemyBonuses: kz_decodeList(meta.enemy_bonuses || ''),
       buildingDamage: kz_decodeList(meta.building_damage || ''),
+      attackLuck: meta.attack_luck || '',
+      morale: meta.morale || '',
+      defenderFlag: meta.defender_flag || '',
+      attackerFaith: meta.attacker_faith || '',
+      attackerFight: meta.attacker_fight || '',
+      defenderFaith: meta.defender_faith || '',
+      defenderFight: meta.defender_fight || '',
     };
 
     const history = String(historyText || '')
@@ -586,6 +593,13 @@ javascript:(function () {
       survVec: event.survVec || new Array(UNIT_KEYS.length).fill(0),
       enemyBonuses: Array.isArray(event.enemyBonuses) ? event.enemyBonuses.slice() : [],
       buildingDamage: Array.isArray(event.buildingDamage) ? event.buildingDamage.slice() : [],
+      attackLuck: event.attackLuck || '',
+      morale: event.morale || '',
+      defenderFlag: event.defenderFlag || '',
+      attackerFaith: event.attackerFaith || '',
+      attackerFight: event.attackerFight || '',
+      defenderFaith: event.defenderFaith || '',
+      defenderFight: event.defenderFight || '',
     };
   }
 
@@ -649,6 +663,21 @@ javascript:(function () {
     const lines = [header];
 
     const appendExtras = () => {
+      if (snapshot.attackLuck) lines.push(`${kz_colorLabel('Štěstí útočníka', '#2563eb')} ${snapshot.attackLuck}`);
+      if (snapshot.morale) lines.push(`${kz_colorLabel('Morálka', '#2563eb')} ${snapshot.morale}`);
+      if (snapshot.defenderFlag) lines.push(`${kz_colorLabel('Vlajka cíle', '#7c3aed')} ${snapshot.defenderFlag}`);
+      if (snapshot.attackerFaith || snapshot.attackerFight) {
+        const a = [];
+        if (snapshot.attackerFaith) a.push(`Víra: ${snapshot.attackerFaith}`);
+        if (snapshot.attackerFight) a.push(`Bojovnost: ${snapshot.attackerFight}`);
+        lines.push(`${kz_colorLabel('Útočník', '#1d4ed8')} ${a.join(' | ')}`);
+      }
+      if (snapshot.defenderFaith || snapshot.defenderFight) {
+        const d = [];
+        if (snapshot.defenderFaith) d.push(`Víra: ${snapshot.defenderFaith}`);
+        if (snapshot.defenderFight) d.push(`Bojovnost: ${snapshot.defenderFight}`);
+        lines.push(`${kz_colorLabel('Obránce', '#1d4ed8')} ${d.join(' | ')}`);
+      }
       if (Array.isArray(snapshot.enemyBonuses) && snapshot.enemyBonuses.length) {
         lines.push(`${kz_colorLabel('Bonusy cíle', '#7c3aed')} ${snapshot.enemyBonuses.join(' | ')}`);
       }
@@ -726,7 +755,8 @@ javascript:(function () {
       knowledgeScope: 'unknown',
       
       homeKnown: 0, awayKnown: 0, mainOffDestroyed: 0,
-      sourceUser: '', sourceReport: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: [], enemyBonuses: [], buildingDamage: []
+      sourceUser: '', sourceReport: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: [], enemyBonuses: [], buildingDamage: [],
+      attackLuck: '', morale: '', defenderFlag: '', attackerFaith: '', attackerFight: '', defenderFaith: '', defenderFight: ''
     };
 
     return [
@@ -755,6 +785,13 @@ javascript:(function () {
       `surv_vec=${kz_vecToCsv(snap.survVec)}`,
       `enemy_bonuses=${kz_encodeList(snap.enemyBonuses)}`,
       `building_damage=${kz_encodeList(snap.buildingDamage)}`,
+      `attack_luck=${snap.attackLuck || ''}`,
+      `morale=${snap.morale || ''}`,
+      `defender_flag=${snap.defenderFlag || ''}`,
+      `attacker_faith=${snap.attackerFaith || ''}`,
+      `attacker_fight=${snap.attackerFight || ''}`,
+      `defender_faith=${snap.defenderFaith || ''}`,
+      `defender_fight=${snap.defenderFight || ''}`,
     ].join('\n');
   }
 
@@ -798,17 +835,60 @@ javascript:(function () {
 
   function kz_parseBuildingDamageFromDoc(doc) {
     const out = [];
-    const rows = Array.from(doc.querySelectorAll('#content_value table.vis tr'));
+    const rows = Array.from(doc.querySelectorAll('#attack_results tr'));
     for (const tr of rows) {
-      const tds = tr.querySelectorAll('td');
-      if (tds.length < 2) continue;
-      const key = (tds[0].textContent || '').replace(/\s+/g, ' ').trim();
+      const th = tr.querySelector('th');
+      const td = tr.querySelector('td');
+      if (!th || !td) continue;
+      const key = (th.textContent || '').replace(/\s+/g, ' ').trim();
       if (key !== 'Škoda vzniklá střelbou z katapultu:' && key !== 'Škoda vzniklá beranidlem:') continue;
-      const val = (tds[1].textContent || '').replace(/\s+/g, ' ').trim();
+      const val = (td.textContent || '').replace(/\s+/g, ' ').trim();
       if (!val) continue;
       out.push(`${key} ${val}`);
     }
     return out;
+  }
+
+  function kz_parseRowValueByLabel(doc, boxSel, label) {
+    const rows = Array.from(doc.querySelectorAll(`${boxSel} tr`));
+    for (const tr of rows) {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < 2) continue;
+      const key = (tds[0].textContent || '').replace(/\s+/g, ' ').trim();
+      if (key !== label) continue;
+      return (tds[1].textContent || '').replace(/\s+/g, ' ').trim();
+    }
+    return '';
+  }
+
+  function kz_parseFaithFightFromBox(doc, boxSel) {
+    const row = doc.querySelector(`${boxSel} tr td[colspan="2"]`);
+    if (!row) return { faith: '', fight: '' };
+    const txt = (row.textContent || '').replace(/\s+/g, ' ').trim();
+    const fm = txt.match(/Víra:\s*(.*?)\s*(?:Bojovnost:|$)/i);
+    const bm = txt.match(/Bojovnost:\s*([^\s].*)$/i);
+    return {
+      faith: fm ? fm[1].trim() : '',
+      fight: bm ? bm[1].trim() : '',
+    };
+  }
+
+  function kz_parseCombatStatsFromDoc(doc) {
+    const luck = (doc.querySelector('#attack_luck td.nobg b')?.textContent || '').replace(/\s+/g, ' ').trim();
+    const moraleNode = Array.from(doc.querySelectorAll('.report_transparent_overlay h4')).find(x => /Morálka/i.test(x.textContent || ''));
+    const morale = moraleNode ? (moraleNode.textContent || '').replace(/\s+/g, ' ').replace(/^Morálka:\s*/i, '').trim() : '';
+    const attacker = kz_parseFaithFightFromBox(doc, '#attack_info_att');
+    const defender = kz_parseFaithFightFromBox(doc, '#attack_info_def');
+    const defenderFlag = kz_parseRowValueByLabel(doc, '#attack_info_def', 'Vlajka:');
+    return {
+      attackLuck: luck,
+      morale,
+      attackerFaith: attacker.faith,
+      attackerFight: attacker.fight,
+      defenderFaith: defender.faith,
+      defenderFight: defender.fight,
+      defenderFlag,
+    };
   }
 
   function kz_zeroVec() {
@@ -848,6 +928,13 @@ javascript:(function () {
       lines: [],
       enemyBonuses: Array.isArray(raw.enemyBonuses) ? raw.enemyBonuses.slice() : [],
       buildingDamage: Array.isArray(raw.buildingDamage) ? raw.buildingDamage.slice() : [],
+      attackLuck: raw.attackLuck || '',
+      morale: raw.morale || '',
+      defenderFlag: raw.defenderFlag || '',
+      attackerFaith: raw.attackerFaith || '',
+      attackerFight: raw.attackerFight || '',
+      defenderFaith: raw.defenderFaith || '',
+      defenderFight: raw.defenderFight || '',
     };
 
     if (raw.iAmAtt && raw.side === 'def') {
@@ -1073,6 +1160,8 @@ javascript:(function () {
     const row2 = side === 'att' ? attRow2 : defRow2;
     const row3 = side === 'att' ? attRow3 : defRow3;
 
+    const combatStats = kz_parseCombatStatsFromDoc(doc);
+
     let away = null;
     if (side === 'def' && doc.querySelector('#attack_spy_away')) {
       const tds = Array.from(doc.querySelectorAll('#attack_spy_away > tbody > tr:nth-child(2) > td table tbody tr:nth-child(2) > td'));
@@ -1092,6 +1181,13 @@ javascript:(function () {
       catapultSent: iAmAtt ? (attRow2[UNIT_INDEX.catapult] || 0) : (row2[UNIT_INDEX.catapult] || 0),
       enemyBonuses: kz_parseEnhancementsFromDoc(doc, side === 'def' ? 'def' : 'att'),
       buildingDamage: kz_parseBuildingDamageFromDoc(doc),
+      attackLuck: combatStats.attackLuck,
+      morale: combatStats.morale,
+      defenderFlag: combatStats.defenderFlag,
+      attackerFaith: combatStats.attackerFaith,
+      attackerFight: combatStats.attackerFight,
+      defenderFaith: combatStats.defenderFaith,
+      defenderFight: combatStats.defenderFight,
     });
 
     await kz_processEventForVillage(targetId, event);
@@ -1184,6 +1280,8 @@ javascript:(function () {
     const row2 = side === 'att' ? attRow2 : defRow2;
     const row3 = side === 'att' ? attRow3 : defRow3;
 
+    const combatStats = kz_parseCombatStatsFromDoc(document);
+
     let away = null;
     if (side === 'def' && $('#attack_spy_away').length) {
       const tds = $('#attack_spy_away > tbody > tr:nth-child(2) > td table tbody tr:nth-child(2) > td');
@@ -1203,6 +1301,13 @@ javascript:(function () {
       catapultSent: iAmAtt ? (attRow2[UNIT_INDEX.catapult] || 0) : (row2[UNIT_INDEX.catapult] || 0),
       enemyBonuses: side === 'def' ? kz_parseEnhancementsFromDoc(document, 'def') : kz_parseEnhancementsFromDoc(document, 'att'),
       buildingDamage: kz_parseBuildingDamageFromDoc(document),
+      attackLuck: combatStats.attackLuck,
+      morale: combatStats.morale,
+      defenderFlag: combatStats.defenderFlag,
+      attackerFaith: combatStats.attackerFaith,
+      attackerFight: combatStats.attackerFight,
+      defenderFaith: combatStats.defenderFaith,
+      defenderFight: combatStats.defenderFight,
     });
 
     try {
