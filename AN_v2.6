@@ -127,7 +127,7 @@ javascript:(function () {
 
   function classify(vec) {
     const { off, deff } = calcOffDeffFarm(vec || []);
-    if (!(vec || []).some(v => v > 0)) return { text: T.noSurvivors, color: '#888888', score: 0.0, tag: 'mix' };
+    if (!(vec || []).some(v => v > 0)) return { text: T.noSurvivors, color: '#0eae0e', score: 0.0, tag: 'deff' };
 
     const offScore = Math.min(1, off / 15000);
     const deffScore = Math.min(1, deff / 20000);
@@ -216,6 +216,10 @@ javascript:(function () {
     if (n <= 1000) return '[img]https://dscs.innogamescdn.com/asset/985df5a4/graphic/command/attack_small.webp[/img]';
     if (n <= 5000) return '[img]https://dscs.innogamescdn.com/asset/985df5a4/graphic/command/attack_medium.webp[/img]';
     return '[img]https://dscs.innogamescdn.com/asset/985df5a4/graphic/command/attack_large.webp[/img]';
+  }
+
+  function kz_luckIcon() {
+    return '[img]https://dscs.innogamescdn.com/asset/b2fb8d33/graphic/klee.webp[/img]';
   }
 
   function fmtLine(label, vec) {
@@ -357,7 +361,8 @@ javascript:(function () {
     const battleTime = timeMatch ? timeMatch[1] : '';
     const battleMs = kz_parseBattleDateToMs(battleTime);
     const scoreValue = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
-    const scoreTag = scoreMatch ? scoreMatch[2].toLowerCase() : 'mix';
+    const scoreTagRaw = scoreMatch ? scoreMatch[2].toLowerCase() : 'deff';
+    const scoreTag = scoreTagRaw === 'off' ? 'off' : 'deff';
 
     const homeVec = kz_objToVec(intelBlock.intel.home);
     const awayVec = kz_objToVec(intelBlock.intel.away);
@@ -402,7 +407,7 @@ javascript:(function () {
       battleMs: Number.isFinite(battleMs) ? battleMs : 0,
       type,
       strength,
-      villageTag: scoreTag,
+      villageTag: (scoreTag === 'off' ? 'off' : 'deff'),
       scoreValue,
       scoreTag,
       confidence,
@@ -478,7 +483,7 @@ javascript:(function () {
       battleMs: kz_parseBattleDateToMs(battleTime),
       type,
       scoreValue: scoreMatch ? parseFloat(scoreMatch[1]) : 0,
-      scoreTag: scoreMatch ? scoreMatch[2].toLowerCase() : 'mix',
+      scoreTag: scoreMatch ? (scoreMatch[2].toLowerCase() === 'off' ? 'off' : 'deff') : 'deff',
       summary,
       sourceReport,
       rawLine: line.trim(),
@@ -496,9 +501,9 @@ javascript:(function () {
       battleMs: kz_parseBattleDateToMs(meta.snapshot_time || ''),
       type: snapshotType,
       strength: parseInt(meta.snapshot_strength || '0', 10) || 0,
-      villageTag: (meta.village_tag || 'mix').toLowerCase(),
+      villageTag: ((meta.village_tag || 'deff').toLowerCase() === 'off' ? 'off' : 'deff'),
       scoreValue: parseFloat(meta.score_value || '0') || 0,
-      scoreTag: (meta.score_tag || 'mix').toLowerCase(),
+      scoreTag: ((meta.score_tag || 'deff').toLowerCase() === 'off' ? 'off' : 'deff'),
       confidence: meta.confidence || 'low',
       attackType: meta.attack_type || 'UNKNOWN',
 
@@ -556,7 +561,7 @@ javascript:(function () {
   }
 
   function kz_renderHistoryLine(event) {
-    const scoreField = `${Number(event.scoreValue || 0).toFixed(1)} ${event.scoreTag || 'mix'}`;
+    const scoreField = `${Number(event.scoreValue || 0).toFixed(1)} ${event.scoreTag || 'deff'}`;
     return `${event.battleTime} | ${event.type} | ${scoreField} | ${event.summary} | report=${event.sourceReport || ''}`;
   }
 
@@ -648,7 +653,7 @@ javascript:(function () {
     const t = String(tag || '').toLowerCase();
     if (t === 'off') return '#ff0000';
     if (t === 'deff') return '#2f6fff';
-    return '#666666';
+    return '#2f6fff';
   }
 
   function kz_colorLabel(label, color) {
@@ -667,9 +672,9 @@ javascript:(function () {
   function kz_renderSnapshot(snapshot) {
     if (!snapshot) return 'Bez snapshotu';
 
-    const scoreTag = String(snapshot.scoreTag || 'mix').toLowerCase();
+    const scoreTag = String(snapshot.scoreTag || 'deff').toLowerCase();
     const scoreColor = kz_getTagColor(scoreTag);
-    const tagUpper = scoreTag === 'off' ? 'OFF' : (scoreTag === 'deff' ? 'DEFF' : 'MIX');
+    const tagUpper = scoreTag === 'off' ? 'OFF' : 'DEFF';
 
     const header =
       `[b]${snapshot.battleTime}[/b] | ` +
@@ -679,9 +684,6 @@ javascript:(function () {
     const lines = [header];
 
     const appendExtras = () => {
-      if (snapshot.attackLuck) lines.push(`${kz_colorLabel('Štěstí útočníka', '#2563eb')} ${snapshot.attackLuck}`);
-      if (snapshot.morale) lines.push(`${kz_colorLabel('Morálka', '#2563eb')} ${snapshot.morale}`);
-      if (snapshot.defenderFlag) lines.push(`${kz_colorLabel('Vlajka cíle', '#7c3aed')} ${snapshot.defenderFlag}`);
       if (snapshot.attackerFaith || snapshot.attackerFight) {
         const a = [];
         if (snapshot.attackerFaith) a.push(`Víra: ${snapshot.attackerFaith}`);
@@ -694,17 +696,21 @@ javascript:(function () {
         if (snapshot.defenderFight) d.push(`Bojovnost: ${snapshot.defenderFight}`);
         lines.push(`${kz_colorLabel('Obránce', '#1d4ed8')} ${d.join(' | ')}`);
       }
-      if (snapshot.attackSizeIcon || snapshot.targetPlayerName) {
-        const arr = [];
-        if (snapshot.attackSizeIcon) arr.push(snapshot.attackSizeIcon);
-        if ((snapshot.attackUnitCount || 0) > 0) arr.push(String(snapshot.attackUnitCount));
-        const who = snapshot.targetPlayerName ? `na hráče [b]${snapshot.targetPlayerName}[/b]` : '';
-        lines.push(`${kz_colorLabel('Útok', '#b91c1c')} ${arr.join(' ')} ${who}`.trim());
-      }
       if (Array.isArray(snapshot.buildingDamage) && snapshot.buildingDamage.length) {
         for (const dmg of snapshot.buildingDamage) {
           lines.push(`${kz_colorLabel('Poškození budov', '#b45309')} ${dmg}`);
         }
+      }
+
+      const contextParts = [];
+      if (snapshot.attackSizeIcon) contextParts.push(snapshot.attackSizeIcon);
+      if (snapshot.targetPlayerName) contextParts.push(`na hráče [b]${snapshot.targetPlayerName}[/b]`);
+      if (snapshot.attackLuck) contextParts.push(`${kz_luckIcon()} ${snapshot.attackLuck}`);
+      if (snapshot.morale) contextParts.push(`Morálka ${snapshot.morale}`);
+      if (snapshot.defenderFlag) contextParts.push(`Vlajka ${snapshot.defenderFlag}`);
+
+      if (contextParts.length) {
+        lines.push(`${kz_colorLabel('Kontext útoku', '#b91c1c')} ${contextParts.join(' | ')}`);
       }
     };
 
@@ -768,8 +774,8 @@ javascript:(function () {
 
   function kz_renderMeta(snapshot) {
     const snap = snapshot || {
-      battleTime: '', type: 'UNKNOWN', strength: 0, villageTag: 'mix', scoreValue: 0,
-      scoreTag: 'mix', confidence: 'low', attackType: 'UNKNOWN',
+      battleTime: '', type: 'UNKNOWN', strength: 0, villageTag: 'deff', scoreValue: 0,
+      scoreTag: 'deff', confidence: 'low', attackType: 'UNKNOWN',
 
       intelOrigin: 'unknown',
       knowledgeScope: 'unknown',
@@ -785,9 +791,9 @@ javascript:(function () {
       `snapshot_time=${snap.battleTime || ''}`,
       `snapshot_type=${snap.type || 'UNKNOWN'}`,
       `snapshot_strength=${snap.strength || 0}`,
-      `village_tag=${snap.villageTag || 'mix'}`,
+      `village_tag=${snap.villageTag || 'deff'}`,
       `score_value=${Number(snap.scoreValue || 0).toFixed(1)}`,
-      `score_tag=${snap.scoreTag || 'mix'}`,
+      `score_tag=${snap.scoreTag || 'deff'}`,
       `confidence=${snap.confidence || 'low'}`,
       `attack_type=${snap.attackType || 'UNKNOWN'}`,
 
