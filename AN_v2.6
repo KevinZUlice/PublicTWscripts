@@ -218,6 +218,10 @@ javascript:(function () {
     return '[img]https://dscs.innogamescdn.com/asset/985df5a4/graphic/command/attack_large.webp[/img]';
   }
 
+  function kz_luckIcon() {
+    return '[img]https://dscs.innogamescdn.com/asset/b2fb8d33/graphic/klee.webp[/img]';
+  }
+
   function fmtLine(label, vec) {
     const parts = [];
     for (let i = 0; i < UNIT_KEYS.length; i++) {
@@ -680,9 +684,6 @@ javascript:(function () {
     const lines = [header];
 
     const appendExtras = () => {
-      if (snapshot.attackLuck) lines.push(`${kz_colorLabel('Štěstí útočníka', '#2563eb')} ${snapshot.attackLuck}`);
-      if (snapshot.morale) lines.push(`${kz_colorLabel('Morálka', '#2563eb')} ${snapshot.morale}`);
-      if (snapshot.defenderFlag) lines.push(`${kz_colorLabel('Vlajka cíle', '#7c3aed')} ${snapshot.defenderFlag}`);
       if (snapshot.attackerFaith || snapshot.attackerFight) {
         const a = [];
         if (snapshot.attackerFaith) a.push(`Víra: ${snapshot.attackerFaith}`);
@@ -695,17 +696,21 @@ javascript:(function () {
         if (snapshot.defenderFight) d.push(`Bojovnost: ${snapshot.defenderFight}`);
         lines.push(`${kz_colorLabel('Obránce', '#1d4ed8')} ${d.join(' | ')}`);
       }
-      if (snapshot.attackSizeIcon || snapshot.targetPlayerName) {
-        const arr = [];
-        if (snapshot.attackSizeIcon) arr.push(snapshot.attackSizeIcon);
-        if ((snapshot.attackUnitCount || 0) > 0) arr.push(String(snapshot.attackUnitCount));
-        const who = snapshot.targetPlayerName ? `na hráče [b]${snapshot.targetPlayerName}[/b]` : '';
-        lines.push(`${kz_colorLabel('Útok', '#b91c1c')} ${arr.join(' ')} ${who}`.trim());
-      }
       if (Array.isArray(snapshot.buildingDamage) && snapshot.buildingDamage.length) {
         for (const dmg of snapshot.buildingDamage) {
           lines.push(`${kz_colorLabel('Poškození budov', '#b45309')} ${dmg}`);
         }
+      }
+
+      const contextParts = [];
+      if (snapshot.attackSizeIcon) contextParts.push(snapshot.attackSizeIcon);
+      if (snapshot.targetPlayerName) contextParts.push(`na hráče [b]${snapshot.targetPlayerName}[/b]`);
+      if (snapshot.attackLuck) contextParts.push(`${kz_luckIcon()} ${snapshot.attackLuck}`);
+      if (snapshot.morale) contextParts.push(`Morálka ${snapshot.morale}`);
+      if (snapshot.defenderFlag) contextParts.push(`Vlajka ${snapshot.defenderFlag}`);
+
+      if (contextParts.length) {
+        lines.push(`${kz_colorLabel('Kontext útoku', '#b91c1c')} ${contextParts.join(' | ')}`);
       }
     };
 
