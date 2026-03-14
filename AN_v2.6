@@ -841,7 +841,7 @@ javascript:(function () {
         lines.push(`${kz_colorLabel('Mimo vesnici', '#7a4fff')} neznámé`);
       }
 
-      if (summaryBlock.length) lines.push('', ...summaryBlock, '');
+      if (summaryBlock.length) lines.push('---------------------------------------------------------------------------', ...summaryBlock, '---------------------------------------------------------------------------');
 
       appendExtras();
       return lines.join('\n');
