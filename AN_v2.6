@@ -255,16 +255,16 @@ javascript:(function () {
     const lvl = def.levels[pct];
     if (!lvl) return null;
 
-    const smallUrl = `https://dscs.innogamescdn.com/asset/b2fb8d33/graphic/flags/small/${def.group}.webp`;
     const mediumUrl = `https://dscs.innogamescdn.com/asset/b2fb8d33/graphic/flags/medium/${def.group}_${lvl}.webp`;
-    return { smallUrl, mediumUrl, group: def.group, level: lvl, pct };
+    const smallGenericUrl = `https://dscs.innogamescdn.com/asset/b2fb8d33/graphic/flags/small/${def.group}.webp`;
+    return { mediumUrl, smallGenericUrl, group: def.group, level: lvl, pct };
   }
 
   function kz_flagIconFromText(flagText) {
     const info = kz_parseFlagInfo(flagText);
     if (!info) return '';
-    if (info.smallUrl) return `[img]${info.smallUrl}[/img]`;
     if (info.mediumUrl) return `[img]${info.mediumUrl}[/img]`;
+    if (info.smallGenericUrl) return `[img]${info.smallGenericUrl}[/img]`;
     return '';
   }
 
