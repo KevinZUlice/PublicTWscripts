@@ -44,7 +44,7 @@ javascript:(function () {
   const KZ_HISTORY_START = '[KZ-HISTORY]';
   const KZ_HISTORY_END = '[/KZ-HISTORY]';
   const KZ_VERSION = '2.6';
-  const HISTORY_LIMIT = 5;
+  const HISTORY_LIMIT = 15;
 
   const hasArcher = Array.isArray(GD?.units) && GD.units.includes('archer');
   const UNIT_KEYS = hasArcher
@@ -690,6 +690,24 @@ javascript:(function () {
     });
   }
 
+  function kz_isVillageKnownOff(state) {
+    if (state?.snapshot && (state.snapshot.villageTag === 'off' || state.snapshot.scoreTag === 'off')) return true;
+    const hist = Array.isArray(state?.history) ? state.history : [];
+    return hist.some(h => h?.scoreTag === 'off' || h?.type === 'OFF_FULL_KILL');
+  }
+
+  function kz_applyKnownOffBias(state, event) {
+    if (!kz_isVillageKnownOff(state) || !event) return event;
+    if (event.scoreTag === 'off' && event.villageTag === 'off') return event;
+
+    event.scoreTag = 'off';
+    event.villageTag = 'off';
+    if (!Number.isFinite(Number(event.scoreValue)) || Number(event.scoreValue) <= 0) event.scoreValue = 0.1;
+    event.summary = kz_buildHistorySummary(event);
+    event.rawLine = kz_renderHistoryLine(event);
+    return event;
+  }
+
   function kz_eventToSnapshot(event) {
     return {
       battleTime: event.battleTime,
@@ -1284,6 +1302,8 @@ javascript:(function () {
       history: Array.isArray(existingState?.history) ? existingState.history.slice() : [],
     };
 
+    kz_applyKnownOffBias(state, event);
+
     const beforeKey = state.history.map(h => h.rawLine).join('\n');
     state.history.push({
       battleTime: event.battleTime,
@@ -1446,12 +1466,15 @@ javascript:(function () {
 
     let stop = false;
 
+    const BATCH_DELAY_MS = 400;
+
     const $box = $(`
       <div style="padding:10px">
         <div style="font-weight:700">KZ Batch – Auto poznámky v2.6</div>
         <div style="margin-top:6px">Vybráno: <b>${urls.length}</b></div>
-        <div style="margin-top:8px">Delay mezi reporty: <input id="kz_batch_delay" type="number" min="200" step="100" value="900" style="width:90px"> ms</div>
+        <div style="margin-top:8px">Interval zápisu: <b>${BATCH_DELAY_MS} ms</b> (pevně)</div>
         <div id="kz_batch_status" style="margin-top:10px">Připraveno…</div>
+        <div id="kz_batch_error" style="display:none;margin-top:8px;color:#b91c1c;font-weight:700"></div>
         <div style="margin-top:10px">
           <button class="btn btn-confirm-yes" id="kz_batch_start">Start</button>
           <button class="btn" id="kz_batch_stop" style="margin-left:6px">Stop</button>
@@ -1464,50 +1487,83 @@ javascript:(function () {
 
     $box.find('#kz_batch_start').on('click', async () => {
       const $status = $box.find('#kz_batch_status');
-      const delayMs = Math.max(200, parseInt($box.find('#kz_batch_delay').val(), 10) || 900);
+      const $error = $box.find('#kz_batch_error');
+      const $start = $box.find('#kz_batch_start');
+      $error.hide().text('');
+      $start.prop('disabled', true);
 
-      $status.text(`Načítám reporty pro řazení podle času boje… (0/${urls.length})`);
-      const items = [];
+      let savedCount = 0;
+      let failedCount = 0;
+      const errors = [];
 
-      for (let i = 0; i < urls.length; i++) {
-        if (stop) { $status.text('Zastaveno.'); return; }
-        $status.text(`Načítám reporty pro řazení podle času boje… (${i + 1}/${urls.length})`);
-        try {
-          const html = await (await fetch(urls[i], { credentials: 'include' })).text();
-          const doc = new DOMParser().parseFromString(html, 'text/html');
-          const battleDate = kz_getBattleDateTextFromDoc(doc);
-          items.push({
-            url: urls[i],
-            html,
-            battleDate,
-            ms: kz_parseBattleDateToMs(battleDate),
-          });
-        } catch (e) {
-          console.error(e);
+      try {
+        $status.text(`Načítám reporty pro řazení podle času boje… (0/${urls.length})`);
+        const items = [];
+
+        for (let i = 0; i < urls.length; i++) {
+          if (stop) { $status.text('Zastaveno.'); $start.prop('disabled', false); return; }
+          $status.text(`Načítám reporty pro řazení podle času boje… (${i + 1}/${urls.length})`);
+          try {
+            const html = await (await fetch(urls[i], { credentials: 'include' })).text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const battleDate = kz_getBattleDateTextFromDoc(doc);
+            items.push({
+              url: urls[i],
+              html,
+              battleDate,
+              ms: kz_parseBattleDateToMs(battleDate),
+            });
+          } catch (e) {
+            failedCount += 1;
+            const msg = `Načtení reportu selhalo (${urls[i]}): ${e?.message || e}`;
+            errors.push(msg);
+            console.error(e);
+          }
         }
+
+        items.sort((a, b) => {
+          const am = Number.isFinite(a.ms) ? a.ms : Number.POSITIVE_INFINITY;
+          const bm = Number.isFinite(b.ms) ? b.ms : Number.POSITIVE_INFINITY;
+          if (am !== bm) return am - bm;
+          return String(a.url).localeCompare(String(b.url));
+        });
+
+        for (let i = 0; i < items.length; i++) {
+          if (stop) { $status.text('Zastaveno.'); $start.prop('disabled', false); return; }
+          const it = items[i];
+          $status.text(`Zpracovávám ${i + 1}/${items.length}… (${it.battleDate || 'čas boje ?'})`);
+          try {
+            await kz_processReportHTML(it.html, it.url);
+            savedCount += 1;
+          } catch (e) {
+            failedCount += 1;
+            const msg = `Zápis reportu selhal (${it.url}): ${e?.message || e}`;
+            errors.push(msg);
+            console.error(e);
+          }
+          await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+        }
+
+        if (failedCount === 0) {
+          $status.text(`Hotovo. Zapsáno: ${savedCount}/${urls.length}.`);
+          UI.SuccessMessage(`KZ: Batch dokončen. Zapsáno ${savedCount}/${urls.length} oznamek.`, 3500);
+          Dialog.close();
+          return;
+        }
+
+        const firstErr = errors[0] || 'Neznámá chyba';
+        $status.text(`Dokončeno s chybami. Zapsáno: ${savedCount}/${urls.length}, chyby: ${failedCount}.`);
+        $error.text(`Chyba: ${firstErr}`).show();
+        UI.ErrorMessage(`KZ batch chyba: ${firstErr}`, 6000);
+      } catch (e) {
+        const msg = e?.message || String(e);
+        $status.text(`Batch selhal. Zapsáno: ${savedCount}/${urls.length}, chyby: ${failedCount + 1}.`);
+        $error.text(`Chyba: ${msg}`).show();
+        UI.ErrorMessage(`KZ batch chyba: ${msg}`, 6000);
+        console.error(e);
       }
 
-      items.sort((a, b) => {
-        const am = Number.isFinite(a.ms) ? a.ms : Number.POSITIVE_INFINITY;
-        const bm = Number.isFinite(b.ms) ? b.ms : Number.POSITIVE_INFINITY;
-        if (am !== bm) return am - bm;
-        return String(a.url).localeCompare(String(b.url));
-      });
-
-      for (let i = 0; i < items.length; i++) {
-        if (stop) { $status.text('Zastaveno.'); return; }
-        const it = items[i];
-        $status.text(`Zpracovávám ${i + 1}/${items.length}… (${it.battleDate || 'čas boje ?'})`);
-        try {
-          await kz_processReportHTML(it.html, it.url);
-        } catch (e) {
-          console.error(e);
-        }
-        await new Promise(r => setTimeout(r, delayMs));
-      }
-
-      $status.text('Hotovo.');
-      UI.SuccessMessage('KZ: Batch dokončen', 2500);
+      $start.prop('disabled', false);
     });
   }
 
