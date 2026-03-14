@@ -230,11 +230,46 @@ javascript:(function () {
     return '[img]https://dscs.innogamescdn.com/asset/b2fb8d33/graphic/klee.webp[/img]';
   }
 
+  function kz_parseFlagInfo(flagText) {
+    const txt = String(flagText || '').replace(/\s+/g, ' ').trim();
+    if (!txt) return null;
+
+    const lower = txt.toLowerCase();
+    const pctMatch = lower.match(/([+-]?\d+)\s*%/);
+    const pct = pctMatch ? parseInt(pctMatch[1], 10) : NaN;
+
+    const defs = [
+      { group: 1, keys: ['produkce surovin'], levels: {4:1,6:2,8:3,10:4,12:5,14:6,16:7,17:8,18:9} },
+      { group: 2, keys: ['rychlost rekrutace'], levels: {6:1,8:2,10:3,12:4,14:5,16:6,18:7,19:8,20:9} },
+      { group: 3, keys: ['síla útoku','sila utoku'], levels: {2:1,3:2,4:3,5:4,6:5,7:6,8:7,9:8,10:9} },
+      { group: 4, keys: ['síla obrany','sila obrany'], levels: {2:1,3:2,4:3,5:4,6:5,7:6,8:7,9:8,10:9} },
+      { group: 5, keys: ['štěstí','stesti'], levels: {6:1,8:2,10:3,12:4,14:5,16:6,18:7,19:8,20:9} },
+      { group: 6, keys: ['počet obyvatel','pocet obyvatel'], levels: {2:1,3:2,4:3,5:4,6:5,7:6,8:7,9:8,10:9} },
+      { group: 7, keys: ['levnější mince','levnejsi mince','cena mince'], levels: {'-10':1,'-12':2,'-14':3,'-16':4,'-18':5,'-20':6,'-22':7,'-23':8,'-24':9} },
+      { group: 8, keys: ['nosnost'], levels: {2:1,3:2,4:3,5:4,6:5,7:6,8:7,9:8,10:9} },
+    ];
+
+    const def = defs.find(d => d.keys.some(k => lower.includes(k)));
+    if (!def || !Number.isFinite(pct)) return null;
+
+    const lvl = def.levels[pct];
+    if (!lvl) return null;
+
+    const url = `https://dscs.innogamescdn.com/asset/b2fb8d33/graphic/flags/medium/${def.group}_${lvl}.webp`;
+    return { url, group: def.group, level: lvl, pct };
+  }
+
+  function kz_flagIconFromText(flagText) {
+    const info = kz_parseFlagInfo(flagText);
+    if (!info?.url) return '';
+    return `[img]${info.url}[/img]`;
+  }
+
   function fmtLine(label, vec) {
     const parts = [];
     for (let i = 0; i < UNIT_KEYS.length; i++) {
       const n = vec?.[i] || 0;
-      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${boldNums ? `[b]${n}[/b]` : n}`);
+      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${n}`);
     }
     return `[b]${label}:[/b] ${parts.length ? parts.join(' ') : '—'}`;
   }
@@ -731,7 +766,7 @@ javascript:(function () {
     const parts = [];
     for (let i = 0; i < UNIT_KEYS.length; i++) {
       const n = vec?.[i] || 0;
-      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${boldNums ? `[b]${n}[/b]` : n}`);
+      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${n}`);
     }
     return `${kz_colorLabel(label, color)} ${parts.length ? parts.join(' ') : '—'}`;
   }
@@ -776,7 +811,7 @@ javascript:(function () {
       if (snapshot.targetPlayerName) contextParts.push(`[b]${snapshot.targetPlayerName}[/b]`);
       if (snapshot.attackLuck) contextParts.push(`${kz_luckIcon()} ${snapshot.attackLuck}`);
       if (snapshot.morale && !/^100\s*%?$/.test(String(snapshot.morale).trim())) contextParts.push(`Morálka ${snapshot.morale}`);
-      if (snapshot.defenderFlag) contextParts.push(`Vlajka ${snapshot.defenderFlag}`);
+      if (snapshot.defenderFlag) { const fi = kz_flagIconFromText(snapshot.defenderFlag); contextParts.push(fi ? `${fi} ${snapshot.defenderFlag}` : `Vlajka ${snapshot.defenderFlag}`); }
 
       if (contextParts.length) {
         lines.push(`${kz_colorLabel('Kontext útoku', '#b91c1c')} ${contextParts.join(' | ')}`);
