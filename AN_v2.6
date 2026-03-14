@@ -767,7 +767,7 @@ javascript:(function () {
     const parts = [];
     for (let i = 0; i < UNIT_KEYS.length; i++) {
       const n = vec?.[i] || 0;
-      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${n}`);
+      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${boldNums ? `[b]${n}[/b]` : n}`);
     }
     return `${kz_colorLabel(label, color)} ${parts.length ? parts.join(' ') : '—'}`;
   }
