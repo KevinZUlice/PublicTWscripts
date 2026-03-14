@@ -1429,7 +1429,8 @@ javascript:(function () {
       if (!villageId) continue;
       const bb = tr.querySelector('.village-note-body')?.getAttribute('data-note-bb') || '';
       const ownState = kz_parseStateFromAnyNote(bb);
-      out.push({ villageId, ownNote: bb, ownState });
+      const villageLabel = (tr.querySelector('td:first-child a[href*="screen=info_village"]')?.textContent || '').replace(/\s+/g, ' ').trim() || `ID ${villageId}`;
+      out.push({ villageId, villageLabel, ownNote: bb, ownState });
     }
     return out;
   }
@@ -1490,6 +1491,9 @@ javascript:(function () {
       let deleted = 0;
       let unchanged = 0;
       let failed = 0;
+      const updatedList = [];
+      const deletedList = [];
+      const failedList = [];
 
       try {
         const firstDoc = document;
@@ -1513,7 +1517,7 @@ javascript:(function () {
           if (stop) { $status.text(`Zastaveno. Zpracováno ${seen}/${allRows.length}.`); $start.prop('disabled', false); return; }
           const row = allRows[i];
           seen += 1;
-          $status.text(`Kontroluji vesnici ${seen}/${allRows.length} (ID ${row.villageId})…`);
+          $status.text(`Kontroluji vesnici ${seen}/${allRows.length}: ${row.villageLabel} (ID ${row.villageId})…`);
 
           try {
             const infoUrl = `game.php?screen=info_village&id=${encodeURIComponent(row.villageId)}`;
@@ -1552,14 +1556,17 @@ javascript:(function () {
             if (shouldDelete) {
               await apiNoteEdit(row.villageId, '');
               deleted += 1;
+              deletedList.push(`${row.villageLabel} (ID ${row.villageId})`);
             } else if (String(ownRendered || '').trim() !== String(mergedNote || '').trim()) {
               await apiNoteEdit(row.villageId, mergedNote);
               updated += 1;
+              updatedList.push(`${row.villageLabel} (ID ${row.villageId})`);
             } else {
               unchanged += 1;
             }
           } catch (e) {
             failed += 1;
+            failedList.push(`${row.villageLabel} (ID ${row.villageId})`);
             console.error(e);
           }
 
@@ -1567,7 +1574,16 @@ javascript:(function () {
         }
 
         const msg = `Hotovo. Zkontrolováno ${seen}. Přepsáno ${updated}, smazáno ${deleted}, bez změny ${unchanged}, chyb ${failed}.`;
-        $status.text(msg);
+        const details = [];
+        if (updatedList.length) details.push(`Přepsané: ${updatedList.join(' | ')}`);
+        if (deletedList.length) details.push(`Smazané: ${deletedList.join(' | ')}`);
+        if (failedList.length) details.push(`Chyba u: ${failedList.join(' | ')}`);
+        $status.text(details.length ? `${msg} ${details.join(' || ')}` : msg);
+
+        if (details.length) {
+          $error.text(details.join(' || ')).show();
+        }
+
         if (failed > 0) UI.ErrorMessage(`KZ sync dokončen s chybami (${failed}).`, 5000);
         else UI.SuccessMessage('KZ sync poznámek dokončen.', 3500);
       } catch (e) {
