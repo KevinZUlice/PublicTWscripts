@@ -65,9 +65,14 @@ javascript:(function () {
   }
 
   function kz_isOwnNotesOverviewPage() {
-    return /[?&]screen=notes(?:&|$)/.test(location.search)
-      && /[?&]mode=own(?:&|$)/.test(location.search)
-      && !!document.querySelector('table.overview_table');
+    const qs = new URLSearchParams(location.search || '');
+    if (qs.get('screen') !== 'notes') return false;
+
+    // TW může otevřít vlastní poznámky i bez explicitního mode=own
+    const mode = String(qs.get('mode') || 'own').toLowerCase();
+    if (mode !== 'own') return false;
+
+    return !!document.querySelector('table.overview_table');
   }
 
   function kz_getBattleDateText() {
