@@ -230,6 +230,41 @@ javascript:(function () {
     return '[img]https://dscs.innogamescdn.com/asset/b2fb8d33/graphic/klee.webp[/img]';
   }
 
+  function kz_parseFlagInfo(flagText) {
+    const txt = String(flagText || '').replace(/\s+/g, ' ').trim();
+    if (!txt) return null;
+
+    const lower = txt.toLowerCase();
+    const pctMatch = lower.match(/([+-]?\d+)\s*%/);
+    const pct = pctMatch ? parseInt(pctMatch[1], 10) : NaN;
+
+    const defs = [
+      { group: 1, keys: ['produkce surovin'], levels: {4:1,6:2,8:3,10:4,12:5,14:6,16:7,17:8,18:9} },
+      { group: 2, keys: ['rychlost rekrutace'], levels: {6:1,8:2,10:3,12:4,14:5,16:6,18:7,19:8,20:9} },
+      { group: 3, keys: ['síla útoku','sila utoku'], levels: {2:1,3:2,4:3,5:4,6:5,7:6,8:7,9:8,10:9} },
+      { group: 4, keys: ['síla obrany','sila obrany'], levels: {2:1,3:2,4:3,5:4,6:5,7:6,8:7,9:8,10:9} },
+      { group: 5, keys: ['štěstí','stesti'], levels: {6:1,8:2,10:3,12:4,14:5,16:6,18:7,19:8,20:9} },
+      { group: 6, keys: ['počet obyvatel','pocet obyvatel'], levels: {2:1,3:2,4:3,5:4,6:5,7:6,8:7,9:8,10:9} },
+      { group: 7, keys: ['levnější mince','levnejsi mince','cena mince'], levels: {'-10':1,'-12':2,'-14':3,'-16':4,'-18':5,'-20':6,'-22':7,'-23':8,'-24':9} },
+      { group: 8, keys: ['nosnost'], levels: {2:1,3:2,4:3,5:4,6:5,7:6,8:7,9:8,10:9} },
+    ];
+
+    const def = defs.find(d => d.keys.some(k => lower.includes(k)));
+    if (!def || !Number.isFinite(pct)) return null;
+
+    const lvl = def.levels[pct];
+    if (!lvl) return null;
+
+    const url = `https://dscs.innogamescdn.com/asset/b2fb8d33/graphic/flags/medium/${def.group}_${lvl}.webp`;
+    return { url, group: def.group, level: lvl, pct };
+  }
+
+  function kz_flagIconFromText(flagText) {
+    const info = kz_parseFlagInfo(flagText);
+    if (!info?.url) return '';
+    return `[img]${info.url}[/img]`;
+  }
+
   function fmtLine(label, vec) {
     const parts = [];
     for (let i = 0; i < UNIT_KEYS.length; i++) {
@@ -284,6 +319,45 @@ javascript:(function () {
       else out.push(`${key}: ${vals.join(' | ')}`);
     }
     return out;
+  }
+
+  function kz_bonusUnitNameToKey(name) {
+    const key = String(name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const map = {
+      'kopiník': 'spear',
+      'kopinik': 'spear',
+      'šermíř': 'sword',
+      'sermir': 'sword',
+      'sekerník': 'axe',
+      'sekernik': 'axe',
+      'lučištník': 'archer',
+      'lucistnik': 'archer',
+      'špeh': 'spy',
+      'speh': 'spy',
+      'lehká kavalérie': 'light',
+      'lehka kavalerie': 'light',
+      'lučištník na koni': 'marcher',
+      'lucistnik na koni': 'marcher',
+      'těžká kavalérie': 'heavy',
+      'tezka kavalerie': 'heavy',
+      'beranidlo': 'ram',
+      'katapult': 'catapult',
+      'paladin': 'knight',
+      'šlechtic': 'snob',
+      'slechtic': 'snob',
+    };
+    return map[key] || '';
+  }
+
+  function kz_bonusLineWithUnitIcon(line) {
+    const txt = String(line || '').trim();
+    const m = txt.match(/^([^:]+):\s*(.+)$/);
+    if (!m) return txt;
+    const unitName = m[1].trim();
+    const rest = m[2].trim();
+    const unitKey = kz_bonusUnitNameToKey(unitName);
+    if (!unitKey) return txt;
+    return `[unit]${unitKey}[/unit]: ${rest}`;
   }
 
   function kz_confidenceLabel(conf) {
@@ -688,7 +762,7 @@ javascript:(function () {
     return `[color=${color}][b]${label}:[/b][/color]`;
   }
 
-  function kz_fmtLineStyled(label, vec, color) {
+  function kz_fmtLineStyled(label, vec, color, boldNums) {
     const parts = [];
     for (let i = 0; i < UNIT_KEYS.length; i++) {
       const n = vec?.[i] || 0;
@@ -737,7 +811,7 @@ javascript:(function () {
       if (snapshot.targetPlayerName) contextParts.push(`[b]${snapshot.targetPlayerName}[/b]`);
       if (snapshot.attackLuck) contextParts.push(`${kz_luckIcon()} ${snapshot.attackLuck}`);
       if (snapshot.morale && !/^100\s*%?$/.test(String(snapshot.morale).trim())) contextParts.push(`Morálka ${snapshot.morale}`);
-      if (snapshot.defenderFlag) contextParts.push(`Vlajka ${snapshot.defenderFlag}`);
+      if (snapshot.defenderFlag) { const fi = kz_flagIconFromText(snapshot.defenderFlag); contextParts.push(fi ? `${fi} ${snapshot.defenderFlag}` : `Vlajka ${snapshot.defenderFlag}`); }
 
       if (contextParts.length) {
         lines.push(`${kz_colorLabel('Kontext útoku', '#b91c1c')} ${contextParts.join(' | ')}`);
@@ -755,11 +829,11 @@ javascript:(function () {
         lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000'));
       } else {
         if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
-        if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
+        if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a', true));
       }
 
       if (scope === 'home_and_away') {
-        if (!isAllZero(snapshot.awayVec || [])) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff'));
+        if (!isAllZero(snapshot.awayVec || [])) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
         else lines.push(`${kz_colorLabel('Měl mimo', '#7a4fff')} —`);
       } else if (scope === 'home_only') {
         lines.push(`${kz_colorLabel('Mimo vesnici', '#7a4fff')} neznámé`);
@@ -777,7 +851,7 @@ javascript:(function () {
 
     if (origin === 'attack_event' && scope === 'sent_only') {
       if (!isAllZero(snapshot.sentVec || [])) lines.push(kz_fmtLineStyled(T.sent, snapshot.sentVec || [], '#d97706'));
-      if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
+      if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a', true));
       else if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000'));
       appendExtras();
       return lines.join('\n');
@@ -786,7 +860,7 @@ javascript:(function () {
     if (snapshot.type === 'FULL_SNAPSHOT' || snapshot.type === 'PARTIAL_SNAPSHOT') {
       lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
       if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
-      if (snapshot.awayKnown) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff'));
+      if (snapshot.awayKnown) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
       appendExtras();
       return lines.join('\n');
     }
@@ -799,7 +873,7 @@ javascript:(function () {
 
     if (snapshot.type === 'ATTACK_EVENT') {
       if (!isAllZero(snapshot.sentVec || [])) lines.push(kz_fmtLineStyled(T.sent, snapshot.sentVec || [], '#d97706'));
-      if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
+      if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a', true));
       appendExtras();
       return lines.join('\n');
     }
@@ -868,7 +942,7 @@ javascript:(function () {
       .map(ev => ev.rawLine || kz_renderHistoryLine(ev));
 
     const bonusLines = Array.isArray(state?.snapshot?.enemyBonuses)
-      ? kz_mergeBonusesByUnit(state.snapshot.enemyBonuses).map(x => `• ${x}`)
+      ? kz_mergeBonusesByUnit(state.snapshot.enemyBonuses).map(x => `• ${kz_bonusLineWithUnitIcon(x)}`)
       : [];
 
     return [
