@@ -654,6 +654,7 @@ javascript:(function () {
   function kz_buildHistorySummary(event) {
     if (event.type === 'FULL_SNAPSHOT') return 'doma+mimo';
     if (event.type === 'PARTIAL_SNAPSHOT') return 'doma';
+    if (event.type === 'NO_INTEL_ATTACK') return 'fake / bez odhalení';
     if (event.type === 'OFF_FULL_KILL') return `hlavní off zničena: ${kz_compactVec(event.diedVec || event.sentVec, 'off', 4)}`;
     if (event.type === 'ATTACK_EVENT') {
       if (vecEqual(event.sentVec || [], event.diedVec || [])) return `Padlo 100%: ${kz_compactVec(event.diedVec || [], event.villageTag, 4)}`;
@@ -849,6 +850,12 @@ javascript:(function () {
 
     if (origin === 'attack_event' && scope === 'destroyed_main_off') {
       lines.push(`[color=#ff0000][b]Hlavní off zničena:[/b][/color] ${kz_compactVec(snapshot.diedVec || snapshot.sentVec || [], 'off', 5)}`);
+      appendExtras();
+      return lines.join('\n');
+    }
+
+    if (snapshot.type === 'NO_INTEL_ATTACK' || (origin === 'attack_event' && scope === 'none')) {
+      lines.push('[color=#b91c1c][b]Bez odhalení:[/b][/color] žádné info o síle obránce.');
       appendExtras();
       return lines.join('\n');
     }
@@ -1095,6 +1102,12 @@ javascript:(function () {
     return new Array(UNIT_KEYS.length).fill(0);
   }
 
+  function kz_hasNoIntelMessage(text) {
+    const t = String(text || '').toLowerCase();
+    return t.includes('žádný z tvých vojáků se nevrátil živý')
+      && t.includes('nebylo možné zjistit nic o síle protivníkova vojska');
+  }
+
   function kz_buildEventFromRaw(raw) {
     const enemyVecForClass = kz_getEnemyVecForClassification(raw);
     const cls = classify(enemyVecForClass);
@@ -1141,16 +1154,6 @@ javascript:(function () {
     };
 
     if (raw.iAmAtt && raw.side === 'def') {
-      event.type = raw.away != null ? 'FULL_SNAPSHOT' : 'PARTIAL_SNAPSHOT';
-      event.strength = raw.away != null ? 4 : 3;
-      event.confidence = raw.away != null ? 'high' : 'medium';
-
-      event.intelOrigin = 'village_snapshot';
-      event.knowledgeScope = raw.away != null ? 'home_and_away' : 'home_only';
-      event.attackType = 'SPY_SNAPSHOT';
-
-      event.homeKnown = 1;
-      event.awayKnown = raw.away != null ? 1 : 0;
       event.homeVec = (raw.row2 || []).slice();
       event.awayVec = raw.away != null ? raw.away.slice() : new Array(UNIT_KEYS.length).fill(0);
       event.diedVec = (raw.row3 || []).slice();
@@ -1160,10 +1163,39 @@ javascript:(function () {
       event.attackSizeIcon = raw.attackSizeIcon || kz_attackSizeIconByCount(event.attackUnitCount);
       event.targetPlayerName = raw.targetPlayerName || '';
 
-      if (!isAllZero(event.homeVec)) event.lines.push(fmtLine(T.home, event.homeVec));
-      if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died, event.diedVec));
-      if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
-      if (event.awayKnown) event.lines.push(fmtLine(T.away, event.awayVec));
+      const hasHomeIntel = !isAllZero(event.homeVec) || !isAllZero(event.diedVec) || !isAllZero(event.survVec);
+      const hasAwayIntel = raw.away != null;
+      const noIntel = !!raw.noIntel || (!hasHomeIntel && !hasAwayIntel);
+
+      if (noIntel) {
+        event.type = 'NO_INTEL_ATTACK';
+        event.strength = 0;
+        event.confidence = 'low';
+
+        event.intelOrigin = 'attack_event';
+        event.knowledgeScope = 'none';
+        event.attackType = 'FAKE_NO_INTEL';
+
+        event.homeKnown = 0;
+        event.awayKnown = 0;
+        event.lines.push('[color=#b91c1c][b]Bez odhalení:[/b][/color] žádné info o síle obránce.');
+      } else {
+        event.type = hasAwayIntel ? 'FULL_SNAPSHOT' : 'PARTIAL_SNAPSHOT';
+        event.strength = hasAwayIntel ? 4 : 3;
+        event.confidence = hasAwayIntel ? 'high' : 'medium';
+
+        event.intelOrigin = 'village_snapshot';
+        event.knowledgeScope = hasAwayIntel ? 'home_and_away' : 'home_only';
+        event.attackType = 'SPY_SNAPSHOT';
+
+        event.homeKnown = 1;
+        event.awayKnown = hasAwayIntel ? 1 : 0;
+
+        if (!isAllZero(event.homeVec)) event.lines.push(fmtLine(T.home, event.homeVec));
+        if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died, event.diedVec));
+        if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
+        if (event.awayKnown) event.lines.push(fmtLine(T.away, event.awayVec));
+      }
 
     } else if (raw.iAmDef && raw.side === 'att') {
       event.sentVec = (raw.row2 || []).slice();
@@ -1399,6 +1431,7 @@ javascript:(function () {
       attackerFight: combatStats.attackerFight,
       defenderFaith: combatStats.defenderFaith,
       defenderFight: combatStats.defenderFight,
+      noIntel: kz_hasNoIntelMessage(doc.body?.textContent || ''),
     });
 
     await kz_processEventForVillage(targetId, event);
@@ -1523,6 +1556,7 @@ javascript:(function () {
       attackerFight: combatStats.attackerFight,
       defenderFaith: combatStats.defenderFaith,
       defenderFight: combatStats.defenderFight,
+      noIntel: kz_hasNoIntelMessage(document.body?.textContent || ''),
     });
 
     try {
