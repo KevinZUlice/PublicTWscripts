@@ -234,7 +234,7 @@ javascript:(function () {
     const parts = [];
     for (let i = 0; i < UNIT_KEYS.length; i++) {
       const n = vec?.[i] || 0;
-      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${n}`);
+      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${boldNums ? `[b]${n}[/b]` : n}`);
     }
     return `[b]${label}:[/b] ${parts.length ? parts.join(' ') : '—'}`;
   }
@@ -284,6 +284,45 @@ javascript:(function () {
       else out.push(`${key}: ${vals.join(' | ')}`);
     }
     return out;
+  }
+
+  function kz_bonusUnitNameToKey(name) {
+    const key = String(name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const map = {
+      'kopiník': 'spear',
+      'kopinik': 'spear',
+      'šermíř': 'sword',
+      'sermir': 'sword',
+      'sekerník': 'axe',
+      'sekernik': 'axe',
+      'lučištník': 'archer',
+      'lucistnik': 'archer',
+      'špeh': 'spy',
+      'speh': 'spy',
+      'lehká kavalérie': 'light',
+      'lehka kavalerie': 'light',
+      'lučištník na koni': 'marcher',
+      'lucistnik na koni': 'marcher',
+      'těžká kavalérie': 'heavy',
+      'tezka kavalerie': 'heavy',
+      'beranidlo': 'ram',
+      'katapult': 'catapult',
+      'paladin': 'knight',
+      'šlechtic': 'snob',
+      'slechtic': 'snob',
+    };
+    return map[key] || '';
+  }
+
+  function kz_bonusLineWithUnitIcon(line) {
+    const txt = String(line || '').trim();
+    const m = txt.match(/^([^:]+):\s*(.+)$/);
+    if (!m) return txt;
+    const unitName = m[1].trim();
+    const rest = m[2].trim();
+    const unitKey = kz_bonusUnitNameToKey(unitName);
+    if (!unitKey) return txt;
+    return `[unit]${unitKey}[/unit]: ${rest}`;
   }
 
   function kz_confidenceLabel(conf) {
@@ -688,11 +727,11 @@ javascript:(function () {
     return `[color=${color}][b]${label}:[/b][/color]`;
   }
 
-  function kz_fmtLineStyled(label, vec, color) {
+  function kz_fmtLineStyled(label, vec, color, boldNums) {
     const parts = [];
     for (let i = 0; i < UNIT_KEYS.length; i++) {
       const n = vec?.[i] || 0;
-      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${n}`);
+      if (n > 0) parts.push(`[unit]${UNIT_KEYS[i]}[/unit] ${boldNums ? `[b]${n}[/b]` : n}`);
     }
     return `${kz_colorLabel(label, color)} ${parts.length ? parts.join(' ') : '—'}`;
   }
@@ -755,11 +794,11 @@ javascript:(function () {
         lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000'));
       } else {
         if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
-        if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
+        if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a', true));
       }
 
       if (scope === 'home_and_away') {
-        if (!isAllZero(snapshot.awayVec || [])) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff'));
+        if (!isAllZero(snapshot.awayVec || [])) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
         else lines.push(`${kz_colorLabel('Měl mimo', '#7a4fff')} —`);
       } else if (scope === 'home_only') {
         lines.push(`${kz_colorLabel('Mimo vesnici', '#7a4fff')} neznámé`);
@@ -777,7 +816,7 @@ javascript:(function () {
 
     if (origin === 'attack_event' && scope === 'sent_only') {
       if (!isAllZero(snapshot.sentVec || [])) lines.push(kz_fmtLineStyled(T.sent, snapshot.sentVec || [], '#d97706'));
-      if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
+      if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a', true));
       else if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000'));
       appendExtras();
       return lines.join('\n');
@@ -786,7 +825,7 @@ javascript:(function () {
     if (snapshot.type === 'FULL_SNAPSHOT' || snapshot.type === 'PARTIAL_SNAPSHOT') {
       lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
       if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
-      if (snapshot.awayKnown) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff'));
+      if (snapshot.awayKnown) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
       appendExtras();
       return lines.join('\n');
     }
@@ -799,7 +838,7 @@ javascript:(function () {
 
     if (snapshot.type === 'ATTACK_EVENT') {
       if (!isAllZero(snapshot.sentVec || [])) lines.push(kz_fmtLineStyled(T.sent, snapshot.sentVec || [], '#d97706'));
-      if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a'));
+      if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a', true));
       appendExtras();
       return lines.join('\n');
     }
@@ -868,7 +907,7 @@ javascript:(function () {
       .map(ev => ev.rawLine || kz_renderHistoryLine(ev));
 
     const bonusLines = Array.isArray(state?.snapshot?.enemyBonuses)
-      ? kz_mergeBonusesByUnit(state.snapshot.enemyBonuses).map(x => `• ${x}`)
+      ? kz_mergeBonusesByUnit(state.snapshot.enemyBonuses).map(x => `• ${kz_bonusLineWithUnitIcon(x)}`)
       : [];
 
     return [
