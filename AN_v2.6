@@ -702,7 +702,7 @@ javascript:(function () {
 
     const scoreTag = String(snapshot.scoreTag || 'deff').toLowerCase();
     const scoreColor = kz_getTagColor(scoreTag);
-    const tagUpper = scoreTag === 'off' ? ((Number(snapshot.scoreValue || 0) >= 1.0) ? 'NUKE' : 'OFF') : 'DEFF';
+    const tagUpper = scoreTag === 'off' ? 'OFF' : 'DEFF';
 
     const header =
       `[b]${snapshot.battleTime}[/b] | ` +
