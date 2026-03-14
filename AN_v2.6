@@ -69,10 +69,11 @@ javascript:(function () {
     if (qs.get('screen') !== 'notes') return false;
 
     // TW může otevřít vlastní poznámky i bez explicitního mode=own
+    // a někdy nemusí být overview_table (prázdný seznam / odlišný layout).
     const mode = String(qs.get('mode') || 'own').toLowerCase();
-    if (mode !== 'own') return false;
+    if (mode === 'ally' || mode === 'friends') return false;
 
-    return !!document.querySelector('table.overview_table');
+    return true;
   }
 
   function kz_getBattleDateText() {
