@@ -136,8 +136,7 @@ javascript:(function () {
 
     // KZ pravidlo: pokud jsou vidět sekery (doma nebo mimo), je to OFF vesnice
     if (hasAxe) {
-      const roundedOff = Math.round(offScore * 10) / 10;
-      const score = (offScore >= 1) ? 1.0 : Math.max(0.5, roundedOff);
+      const score = Math.round(offScore * 10) / 10;
       return { text: T.offensive, color: '#ff0000', score, tag: 'off' };
     }
 
