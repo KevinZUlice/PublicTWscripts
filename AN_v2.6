@@ -44,7 +44,7 @@ javascript:(function () {
   const KZ_HISTORY_START = '[KZ-HISTORY]';
   const KZ_HISTORY_END = '[/KZ-HISTORY]';
   const KZ_VERSION = '2.6';
-  const HISTORY_LIMIT = 5;
+  const HISTORY_LIMIT = 15;
 
   const hasArcher = Array.isArray(GD?.units) && GD.units.includes('archer');
   const UNIT_KEYS = hasArcher
@@ -690,6 +690,24 @@ javascript:(function () {
     });
   }
 
+  function kz_isVillageKnownOff(state) {
+    if (state?.snapshot && (state.snapshot.villageTag === 'off' || state.snapshot.scoreTag === 'off')) return true;
+    const hist = Array.isArray(state?.history) ? state.history : [];
+    return hist.some(h => h?.scoreTag === 'off' || h?.type === 'OFF_FULL_KILL');
+  }
+
+  function kz_applyKnownOffBias(state, event) {
+    if (!kz_isVillageKnownOff(state) || !event) return event;
+    if (event.scoreTag === 'off' && event.villageTag === 'off') return event;
+
+    event.scoreTag = 'off';
+    event.villageTag = 'off';
+    if (!Number.isFinite(Number(event.scoreValue)) || Number(event.scoreValue) <= 0) event.scoreValue = 0.1;
+    event.summary = kz_buildHistorySummary(event);
+    event.rawLine = kz_renderHistoryLine(event);
+    return event;
+  }
+
   function kz_eventToSnapshot(event) {
     return {
       battleTime: event.battleTime,
@@ -1283,6 +1301,8 @@ javascript:(function () {
       snapshot: existingState?.snapshot ? { ...existingState.snapshot } : null,
       history: Array.isArray(existingState?.history) ? existingState.history.slice() : [],
     };
+
+    kz_applyKnownOffBias(state, event);
 
     const beforeKey = state.history.map(h => h.rawLine).join('\n');
     state.history.push({
