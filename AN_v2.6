@@ -1545,9 +1545,9 @@ javascript:(function () {
         }
 
         if (failedCount === 0) {
-          $status.text(`Hotovo. Zapsáno: ${savedCount}/${urls.length}.`);
+          $status.text(`Hotovo. Zapsáno: ${savedCount}/${urls.length}. Můžeš pokračovat další částí skriptu.`);
           UI.SuccessMessage(`KZ: Batch dokončen. Zapsáno ${savedCount}/${urls.length} oznamek.`, 3500);
-          Dialog.close();
+          $start.prop('disabled', false);
           return;
         }
 
