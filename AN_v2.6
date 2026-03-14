@@ -826,19 +826,22 @@ javascript:(function () {
       if (!isAllZero(snapshot.homeVec || [])) lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
 
       const allHomeDied = !isAllZero(snapshot.homeVec || []) && vecEqual(snapshot.homeVec || [], snapshot.diedVec || []);
+      const summaryBlock = [];
       if (allHomeDied) {
         lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000'));
       } else {
         if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
-        if (!isAllZero(snapshot.survVec || [])) lines.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a', true));
+        if (!isAllZero(snapshot.survVec || [])) summaryBlock.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a', true));
       }
 
       if (scope === 'home_and_away') {
-        if (!isAllZero(snapshot.awayVec || [])) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
-        else lines.push(`${kz_colorLabel('Měl mimo', '#7a4fff')} —`);
+        if (!isAllZero(snapshot.awayVec || [])) summaryBlock.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
+        else summaryBlock.push(`${kz_colorLabel('Měl mimo', '#7a4fff')} —`);
       } else if (scope === 'home_only') {
         lines.push(`${kz_colorLabel('Mimo vesnici', '#7a4fff')} neznámé`);
       }
+
+      if (summaryBlock.length) lines.push('', ...summaryBlock, '');
 
       appendExtras();
       return lines.join('\n');
