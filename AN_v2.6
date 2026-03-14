@@ -64,6 +64,12 @@ javascript:(function () {
     return !!document.querySelector('#report_list');
   }
 
+  function kz_isOwnNotesOverviewPage() {
+    return /[?&]screen=notes(?:&|$)/.test(location.search)
+      && /[?&]mode=own(?:&|$)/.test(location.search)
+      && !!document.querySelector('table.overview_table');
+  }
+
   function kz_getBattleDateText() {
     const rows = Array.from(document.querySelectorAll('#content_value table.vis tr'));
     for (const tr of rows) {
@@ -643,6 +649,16 @@ javascript:(function () {
       .filter(Boolean);
 
     return { snapshot, history };
+  }
+
+  function kz_parseStateFromAnyNote(noteText) {
+    const text = String(noteText || '').trim();
+    if (!text) return { snapshot: null, history: [] };
+    const managed = kz_parseStateFromManagedNote(text);
+    if (managed.snapshot || (managed.history || []).length) return managed;
+    const legacy = kz_parseLegacyState(text);
+    if (legacy.snapshot || (legacy.history || []).length) return legacy;
+    return { snapshot: null, history: [] };
   }
 
   function kz_getEnemyVecForClassification({ iAmDef, iAmAtt, side, row2, away }) {
@@ -1332,6 +1348,233 @@ javascript:(function () {
     return { state, snapshotUpdated, historyAdded };
   }
 
+  function kz_snapshotToHistoryLine(snap) {
+    if (!snap) return null;
+    const scoreTag = (snap.scoreTag === 'off' || snap.villageTag === 'off') ? 'off' : 'deff';
+    const scoreValue = Number.isFinite(Number(snap.scoreValue)) ? Number(snap.scoreValue) : 0;
+    const line = {
+      battleTime: snap.battleTime || '',
+      battleMs: Number.isFinite(Number(snap.battleMs)) ? Number(snap.battleMs) : kz_parseBattleDateToMs(snap.battleTime || ''),
+      type: snap.type || 'SNAPSHOT',
+      scoreValue,
+      scoreTag,
+      summary: snap.knowledgeScope === 'home_and_away' ? 'doma+mimo' : (snap.knowledgeScope === 'home_only' ? 'doma' : 'snapshot'),
+      sourceReport: snap.sourceReport || '',
+    };
+    line.rawLine = `${line.battleTime} | ${line.type} | ${line.scoreValue.toFixed(1)} ${line.scoreTag} | ${line.summary} | report=${line.sourceReport}`;
+    return line;
+  }
+
+  function kz_mergeStatesWithChronology(baseState, incomingStates) {
+    const state = {
+      snapshot: baseState?.snapshot ? { ...baseState.snapshot } : null,
+      history: Array.isArray(baseState?.history) ? baseState.history.slice() : [],
+    };
+
+    const snapshots = [];
+    if (state.snapshot) snapshots.push(state.snapshot);
+
+    for (const s of (incomingStates || [])) {
+      if (!s) continue;
+      if (s.snapshot) snapshots.push(s.snapshot);
+      if (Array.isArray(s.history)) state.history.push(...s.history);
+      const fromSnap = kz_snapshotToHistoryLine(s.snapshot);
+      if (fromSnap) state.history.push(fromSnap);
+    }
+
+    state.history = kz_dedupeHistory(state.history);
+    state.history = kz_sortHistory(state.history).slice(0, HISTORY_LIMIT);
+
+    for (const snap of snapshots) {
+      if (!state.snapshot) {
+        state.snapshot = { ...snap };
+        continue;
+      }
+      if (kz_shouldReplaceSnapshot(state.snapshot, snap)) state.snapshot = { ...snap };
+    }
+
+    if (kz_isVillageKnownOff(state) && state.snapshot && state.snapshot.villageTag !== 'off') {
+      state.snapshot.villageTag = 'off';
+      state.snapshot.scoreTag = 'off';
+      if (!Number.isFinite(Number(state.snapshot.scoreValue)) || Number(state.snapshot.scoreValue) <= 0) state.snapshot.scoreValue = 0.1;
+    }
+
+    return state;
+  }
+
+  function kz_getNotesPageCountFromDoc(doc) {
+    const links = Array.from(doc.querySelectorAll('.paged-nav-item[href*="page="]'));
+    let maxPage = 1;
+    for (const a of links) {
+      const href = a.getAttribute('href') || '';
+      const m = href.match(/[?&]page=(\d+)/);
+      if (!m) continue;
+      const p = parseInt(m[1], 10);
+      if (Number.isFinite(p) && p > maxPage) maxPage = p;
+    }
+    return maxPage;
+  }
+
+  function kz_extractOwnRowsFromNotesDoc(doc) {
+    const out = [];
+    const rows = Array.from(doc.querySelectorAll('table.overview_table tbody tr'));
+    for (const tr of rows) {
+      const villageId = tr.querySelector('input[name="note_village[]"]')?.getAttribute('value') || '';
+      if (!villageId) continue;
+      const bb = tr.querySelector('.village-note-body')?.getAttribute('data-note-bb') || '';
+      const ownState = kz_parseStateFromAnyNote(bb);
+      out.push({ villageId, ownNote: bb, ownState });
+    }
+    return out;
+  }
+
+  function kz_extractForeignStatesFromVillageDoc(doc) {
+    const out = [];
+    const noteBodies = Array.from(doc.querySelectorAll('.village-note-body'));
+    for (const body of noteBodies) {
+      const bb = body.getAttribute('data-note-bb') || body.textContent || '';
+      const st = kz_parseStateFromAnyNote(bb);
+      if (!st.snapshot && !(st.history || []).length) continue;
+      out.push(st);
+    }
+    return out;
+  }
+
+  function kz_hasUniqueOwnIntel(ownState, mergedState) {
+    const ownHist = new Set((ownState?.history || []).map(h => h?.rawLine).filter(Boolean));
+    const mergedHist = new Set((mergedState?.history || []).map(h => h?.rawLine).filter(Boolean));
+    for (const line of ownHist) if (mergedHist.has(line)) return true;
+
+    const ownSnapReport = String(ownState?.snapshot?.sourceReport || '').trim();
+    const mergedSnapReport = String(mergedState?.snapshot?.sourceReport || '').trim();
+    if (ownSnapReport && mergedSnapReport && ownSnapReport === mergedSnapReport) return true;
+    return false;
+  }
+
+  async function kz_scanAndReconcileOwnNotes() {
+    const BASE_DELAY_MS = 400;
+    let stop = false;
+
+    const $box = $(`
+      <div style="padding:10px">
+        <div style="font-weight:700">KZ Sync – Tvé poznámky vesnic</div>
+        <div style="margin-top:6px">Projde všechny stránky tvých poznámek, porovná cizí snapshoty a chronologii sjednotí.</div>
+        <div style="margin-top:8px">Interval: <b>${BASE_DELAY_MS} ms</b> (pevně)</div>
+        <div id="kz_sync_status" style="margin-top:10px">Připraveno…</div>
+        <div id="kz_sync_error" style="display:none;margin-top:8px;color:#b91c1c;font-weight:700"></div>
+        <div style="margin-top:10px">
+          <button class="btn btn-confirm-yes" id="kz_sync_start">Start sync</button>
+          <button class="btn" id="kz_sync_stop" style="margin-left:6px">Stop</button>
+        </div>
+      </div>
+    `);
+
+    Dialog.show('kz_notes_sync_v26', $box);
+    $box.find('#kz_sync_stop').on('click', () => { stop = true; });
+
+    $box.find('#kz_sync_start').on('click', async () => {
+      const $status = $box.find('#kz_sync_status');
+      const $error = $box.find('#kz_sync_error');
+      const $start = $box.find('#kz_sync_start');
+      $error.hide().text('');
+      $start.prop('disabled', true);
+
+      let seen = 0;
+      let updated = 0;
+      let deleted = 0;
+      let unchanged = 0;
+      let failed = 0;
+
+      try {
+        const firstDoc = document;
+        const pageCount = kz_getNotesPageCountFromDoc(firstDoc);
+        const allRows = [];
+
+        for (let page = 1; page <= pageCount; page++) {
+          if (stop) { $status.text('Zastaveno.'); $start.prop('disabled', false); return; }
+          $status.text(`Načítám stránku poznámek ${page}/${pageCount}…`);
+          let doc = firstDoc;
+          if (page > 1) {
+            const url = `game.php?screen=notes&mode=own&page=${page}`;
+            const html = await (await fetch(url, { credentials: 'include' })).text();
+            doc = new DOMParser().parseFromString(html, 'text/html');
+          }
+          allRows.push(...kz_extractOwnRowsFromNotesDoc(doc));
+          await new Promise(r => setTimeout(r, BASE_DELAY_MS));
+        }
+
+        for (let i = 0; i < allRows.length; i++) {
+          if (stop) { $status.text(`Zastaveno. Zpracováno ${seen}/${allRows.length}.`); $start.prop('disabled', false); return; }
+          const row = allRows[i];
+          seen += 1;
+          $status.text(`Kontroluji vesnici ${seen}/${allRows.length} (ID ${row.villageId})…`);
+
+          try {
+            const infoUrl = `game.php?screen=info_village&id=${encodeURIComponent(row.villageId)}`;
+            const html = await (await fetch(infoUrl, { credentials: 'include' })).text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const foreignStates = kz_extractForeignStatesFromVillageDoc(doc);
+
+            if (!foreignStates.length) {
+              unchanged += 1;
+              await new Promise(r => setTimeout(r, BASE_DELAY_MS));
+              continue;
+            }
+
+            const merged = kz_mergeStatesWithChronology(row.ownState, foreignStates);
+            const ownSnap = row.ownState?.snapshot;
+            const mergedSnap = merged?.snapshot;
+
+            const isBetterForeign = (() => {
+              if (!ownSnap && mergedSnap) return true;
+              if (!ownSnap || !mergedSnap) return false;
+              if (kz_shouldReplaceSnapshot(ownSnap, mergedSnap)) return true;
+              if (Number(mergedSnap?.strength || 0) > Number(ownSnap?.strength || 0)) return true;
+              return false;
+            })();
+
+            if (!isBetterForeign) {
+              unchanged += 1;
+              await new Promise(r => setTimeout(r, BASE_DELAY_MS));
+              continue;
+            }
+
+            const mergedNote = kz_renderKzBlock(merged);
+            const ownRendered = row.ownState?.snapshot ? kz_renderKzBlock(row.ownState) : String(row.ownNote || '').trim();
+            const shouldDelete = !kz_hasUniqueOwnIntel(row.ownState, merged) && !!String(mergedNote || '').trim();
+
+            if (shouldDelete) {
+              await apiNoteEdit(row.villageId, '');
+              deleted += 1;
+            } else if (String(ownRendered || '').trim() !== String(mergedNote || '').trim()) {
+              await apiNoteEdit(row.villageId, mergedNote);
+              updated += 1;
+            } else {
+              unchanged += 1;
+            }
+          } catch (e) {
+            failed += 1;
+            console.error(e);
+          }
+
+          await new Promise(r => setTimeout(r, BASE_DELAY_MS));
+        }
+
+        const msg = `Hotovo. Zkontrolováno ${seen}. Přepsáno ${updated}, smazáno ${deleted}, bez změny ${unchanged}, chyb ${failed}.`;
+        $status.text(msg);
+        if (failed > 0) UI.ErrorMessage(`KZ sync dokončen s chybami (${failed}).`, 5000);
+        else UI.SuccessMessage('KZ sync poznámek dokončen.', 3500);
+      } catch (e) {
+        const msg = e?.message || String(e);
+        $status.text('Sync selhal.');
+        $error.text(`Chyba: ${msg}`).show();
+        UI.ErrorMessage(`KZ sync chyba: ${msg}`, 6000);
+      }
+
+      $start.prop('disabled', false);
+    });
+  }
+
   async function kz_fetchVillageNoteText(villageId) {
     const url = `game.php?screen=info_village&id=${encodeURIComponent(villageId)}`;
     const html = await (await fetch(url, { credentials: 'include' })).text();
@@ -1545,9 +1788,9 @@ javascript:(function () {
         }
 
         if (failedCount === 0) {
-          $status.text(`Hotovo. Zapsáno: ${savedCount}/${urls.length}.`);
+          $status.text(`Hotovo. Zapsáno: ${savedCount}/${urls.length}. Můžeš pokračovat další částí skriptu.`);
           UI.SuccessMessage(`KZ: Batch dokončen. Zapsáno ${savedCount}/${urls.length} oznamek.`, 3500);
-          Dialog.close();
+          $start.prop('disabled', false);
           return;
         }
 
@@ -1623,7 +1866,7 @@ javascript:(function () {
     }
   }
 
-  function start() {
+  function kz_runReportFlow() {
     if (kz_isReportOverviewPage()) return kz_runBatchFromOverview();
     if (!verifyReportPage()) return;
 
@@ -1645,6 +1888,37 @@ javascript:(function () {
     Dialog.show('kz_report_note', box);
     box.find('button.atk').on('click', () => { Dialog.close(); runForSide('att'); });
     box.find('button.def').on('click', () => { Dialog.close(); runForSide('def'); });
+  }
+
+  function kz_showMainLauncher() {
+    const box = $('<div class="center"></div>').append(
+      $('<div class="center" style="font-weight:700"></div>').text('KZ AutoNote v2.6 – launcher'),
+      $('<div class="center" style="margin-top:8px;"></div>').text('Vyber režim: zápis reportů nebo sync tvých poznámek.'),
+      $('<div class="center" style="margin-top:12px;"></div>').append(
+        $('<button class="btn btn-confirm-yes kz-mode-write" style="margin-right:10px;"></button>').text('Zapisovat z oznamek'),
+        $('<button class="btn kz-mode-sync"></button>').text('Kontrola / sync poznámek')
+      )
+    );
+
+    Dialog.show('kz_main_launcher_v26', box);
+
+    box.find('button.kz-mode-write').on('click', () => {
+      Dialog.close();
+      kz_runReportFlow();
+    });
+
+    box.find('button.kz-mode-sync').on('click', () => {
+      Dialog.close();
+      if (!kz_isOwnNotesOverviewPage()) {
+        UI.ErrorMessage('KZ: Sync režim spusť na stránce Poznámky → Tvé poznámky vesnic.', 4500);
+        return;
+      }
+      kz_scanAndReconcileOwnNotes();
+    });
+  }
+
+  function start() {
+    kz_showMainLauncher();
   }
 
   start();
