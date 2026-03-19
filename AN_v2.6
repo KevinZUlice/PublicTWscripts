@@ -647,7 +647,6 @@ javascript:(function () {
       defenderFaith: meta.defender_faith || '',
       defenderFight: meta.defender_fight || '',
       attackSizeIcon: meta.attack_size_icon || '',
-      attackUnitCount: parseInt(meta.attack_unit_count || '0', 10) || 0,
       targetPlayerName: meta.target_player || '',
     };
 
@@ -767,7 +766,6 @@ javascript:(function () {
       defenderFaith: event.defenderFaith || '',
       defenderFight: event.defenderFight || '',
       attackSizeIcon: event.attackSizeIcon || '',
-      attackUnitCount: parseInt(event.attackUnitCount || 0, 10) || 0,
       targetPlayerName: event.targetPlayerName || '',
     };
   }
@@ -947,7 +945,7 @@ javascript:(function () {
       homeKnown: 0, awayKnown: 0, mainOffDestroyed: 0,
       sourceUser: '', sourceReport: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: [], enemyBonuses: [], buildingDamage: [],
       attackLuck: '', morale: '', defenderFlag: '', attackerFaith: '', attackerFight: '', defenderFaith: '', defenderFight: '',
-      attackSizeIcon: '', attackUnitCount: 0, targetPlayerName: ''
+      attackSizeIcon: '', targetPlayerName: ''
     };
 
     return [
@@ -984,7 +982,6 @@ javascript:(function () {
       `defender_faith=${snap.defenderFaith || ''}`,
       `defender_fight=${snap.defenderFight || ''}`,
       `attack_size_icon=${snap.attackSizeIcon || ''}`,
-      `attack_unit_count=${parseInt(snap.attackUnitCount || 0, 10) || 0}`,
       `target_player=${snap.targetPlayerName || ''}`,
     ].join('\n');
   }
