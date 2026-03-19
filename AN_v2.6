@@ -375,6 +375,42 @@ javascript:(function () {
     return `[unit]${unitKey}[/unit]: ${rest}`;
   }
 
+  function kz_normalizeCzText(s) {
+    return String(s || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function kz_detectDeffPaladinFromBonuses(lines) {
+    const stats = { spearDefPct: 0, swordDefPct: 0 };
+    for (const raw of (Array.isArray(lines) ? lines : [])) {
+      const txt = String(raw || '').replace(/\s+/g, ' ').trim();
+      if (!txt) continue;
+      const m = txt.match(/^([^:]+):\s*(.+)$/);
+      if (!m) continue;
+      const unitKey = kz_bonusUnitNameToKey(m[1].trim());
+      if (!unitKey) continue;
+
+      const valNorm = kz_normalizeCzText(m[2]);
+      if (!valNorm.includes('obranna sila')) continue;
+      const pctMatch = valNorm.match(/([+-]?\d+)\s*%/);
+      const pct = pctMatch ? parseInt(pctMatch[1], 10) : NaN;
+      if (!Number.isFinite(pct)) continue;
+
+      if (unitKey === 'spear') stats.spearDefPct = Math.max(stats.spearDefPct, pct);
+      if (unitKey === 'sword') stats.swordDefPct = Math.max(stats.swordDefPct, pct);
+    }
+    const detected = stats.spearDefPct >= 30 && stats.swordDefPct >= 30;
+    return {
+      detected,
+      spearDefPct: stats.spearDefPct,
+      swordDefPct: stats.swordDefPct,
+    };
+  }
+
   function kz_confidenceLabel(conf) {
     if (conf === 'high') return 'vysoká';
     if (conf === 'medium') return 'střední';
@@ -647,6 +683,7 @@ javascript:(function () {
       defenderFaith: meta.defender_faith || '',
       defenderFight: meta.defender_fight || '',
       attackSizeIcon: meta.attack_size_icon || '',
+      paladinDeffHint: parseInt(meta.paladin_deff_hint || '0', 10) ? 1 : 0,
       targetPlayerName: meta.target_player || '',
     };
 
@@ -766,6 +803,7 @@ javascript:(function () {
       defenderFaith: event.defenderFaith || '',
       defenderFight: event.defenderFight || '',
       attackSizeIcon: event.attackSizeIcon || '',
+      paladinDeffHint: event.paladinDeffHint ? 1 : 0,
       targetPlayerName: event.targetPlayerName || '',
     };
   }
@@ -854,6 +892,7 @@ javascript:(function () {
       if (snapshot.attackLuck) contextParts.push(`${kz_luckIcon()} ${snapshot.attackLuck}`);
       if (snapshot.morale && !/^100\s*%?$/.test(String(snapshot.morale).trim())) contextParts.push(`Morálka ${snapshot.morale}`);
       if (snapshot.defenderFlag) { const fi = kz_flagIconFromText(snapshot.defenderFlag); contextParts.push(fi ? `${fi} ${snapshot.defenderFlag}` : `Vlajka ${snapshot.defenderFlag}`); }
+      if (snapshot.paladinDeffHint) contextParts.push('DEFF paladin: ano (kopí+meč ≥ 30% obrana)');
 
       if (contextParts.length) {
         lines.push(`${kz_colorLabel('Kontext útoku', '#b91c1c')} ${contextParts.join(' | ')}`);
@@ -943,7 +982,7 @@ javascript:(function () {
       homeKnown: 0, awayKnown: 0, mainOffDestroyed: 0,
       sourceUser: '', sourceReport: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: [], enemyBonuses: [], buildingDamage: [],
       attackLuck: '', morale: '', defenderFlag: '', attackerFaith: '', attackerFight: '', defenderFaith: '', defenderFight: '',
-      attackSizeIcon: '', targetPlayerName: ''
+      attackSizeIcon: '', paladinDeffHint: 0, targetPlayerName: ''
     };
 
     return [
@@ -980,6 +1019,7 @@ javascript:(function () {
       `defender_faith=${snap.defenderFaith || ''}`,
       `defender_fight=${snap.defenderFight || ''}`,
       `attack_size_icon=${snap.attackSizeIcon || ''}`,
+      `paladin_deff_hint=${snap.paladinDeffHint ? 1 : 0}`,
       `target_player=${snap.targetPlayerName || ''}`,
     ].join('\n');
   }
@@ -1188,9 +1228,13 @@ javascript:(function () {
       attackSizeIcon: raw.attackSizeIcon || '',
       attackUnitCount: parseInt(raw.attackUnitCount || 0, 10) || 0,
       targetPlayerName: raw.targetPlayerName || '',
+      paladinDeffHint: raw.paladinDeffHint ? 1 : 0,
     };
 
     const isForwarded = !raw.iAmAtt && !raw.iAmDef;
+
+    const paladinHintInfo = kz_detectDeffPaladinFromBonuses(event.enemyBonuses || []);
+    if (!event.paladinDeffHint && paladinHintInfo.detected) event.paladinDeffHint = 1;
 
     if ((raw.iAmAtt && raw.side === 'def') || (isForwarded && raw.side === 'def')) {
       event.homeVec = (raw.row2 || []).slice();
@@ -1639,16 +1683,21 @@ javascript:(function () {
   }
 
   async function kz_processEventForVillage(targetId, event) {
+    if (event?.type === 'NO_INTEL_ATTACK' && !event?.paladinDeffHint) {
+      UI.SuccessMessage('KZ: Bez intelu i bez indikace DEFF paladina z bonusů → přeskočeno.', 2200);
+      return { skipped: true, saved: false };
+    }
+
     const merged = await kz_mergeNoteForVillage(targetId, event);
     return new Promise((resolve) => {
       apiNoteEdit(targetId, merged.note)
         .done(() => {
           UI.SuccessMessage(merged.snapshotUpdated ? T.noteOverwritten : T.noteAppended, 1400);
-          resolve();
+          resolve({ skipped: false, saved: true });
         })
         .fail(() => {
           UI.ErrorMessage('KZ: Nepovedlo se uložit poznámku (API).', 2500);
-          resolve();
+          resolve({ skipped: false, saved: false });
         });
     });
   }
@@ -1718,7 +1767,7 @@ javascript:(function () {
       noIntel: kz_hasNoIntelMessage(doc.body?.textContent || ''),
     });
 
-    await kz_processEventForVillage(targetId, event);
+    return kz_processEventForVillage(targetId, event);
   }
 
   async function kz_runBatchFromOverview() {
@@ -1757,6 +1806,7 @@ javascript:(function () {
       $start.prop('disabled', true);
 
       let savedCount = 0;
+      let skippedCount = 0;
       let failedCount = 0;
       const errors = [];
 
@@ -1797,8 +1847,16 @@ javascript:(function () {
           const it = items[i];
           $status.text(`Zpracovávám ${i + 1}/${items.length}… (${it.battleDate || 'čas boje ?'})`);
           try {
-            await kz_processReportHTML(it.html, it.url);
-            savedCount += 1;
+            const res = await kz_processReportHTML(it.html, it.url);
+            if (res?.skipped) {
+              skippedCount += 1;
+            } else if (res?.saved) {
+              savedCount += 1;
+            } else {
+              failedCount += 1;
+              const msg = `Zápis reportu selhal (${it.url}): API save failed`;
+              errors.push(msg);
+            }
           } catch (e) {
             failedCount += 1;
             const msg = `Zápis reportu selhal (${it.url}): ${e?.message || e}`;
@@ -1809,14 +1867,14 @@ javascript:(function () {
         }
 
         if (failedCount === 0) {
-          $status.text(`Hotovo. Zapsáno: ${savedCount}/${urls.length}. Můžeš pokračovat další částí skriptu.`);
-          UI.SuccessMessage(`KZ: Batch dokončen. Zapsáno ${savedCount}/${urls.length} oznamek.`, 3500);
+          $status.text(`Hotovo. Zapsáno: ${savedCount}/${urls.length}. Přeskočeno: ${skippedCount}. Můžeš pokračovat další částí skriptu.`);
+          UI.SuccessMessage(`KZ: Batch dokončen. Zapsáno ${savedCount}/${urls.length}, přeskočeno ${skippedCount}.`, 3500);
           $start.prop('disabled', false);
           return;
         }
 
         const firstErr = errors[0] || 'Neznámá chyba';
-        $status.text(`Dokončeno s chybami. Zapsáno: ${savedCount}/${urls.length}, chyby: ${failedCount}.`);
+        $status.text(`Dokončeno s chybami. Zapsáno: ${savedCount}/${urls.length}, přeskočeno: ${skippedCount}, chyby: ${failedCount}.`);
         $error.text(`Chyba: ${firstErr}`).show();
         UI.ErrorMessage(`KZ batch chyba: ${firstErr}`, 6000);
       } catch (e) {
