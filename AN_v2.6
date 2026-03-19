@@ -123,17 +123,21 @@ javascript:(function () {
   }
 
   function calcOffDeffFarm(vec) {
-    let off = 0, deff = 0;
-    for (let i = 0; i < vec.length; i++) {
-      const n = vec[i] || 0;
-      if (hasArcher) {
-        if (i === 2 || i === 5 || i === 6 || i === 8 || i === 9) off += n * FARM[i];
-        if (i === 0 || i === 1 || i === 3 || i === 7) deff += n * FARM[i];
-      } else {
-        if (i === 2 || i === 4 || i === 6 || i === 7) off += n * FARM[i];
-        if (i === 0 || i === 1 || i === 5) deff += n * FARM[i];
-      }
-    }
+    const v = Array.isArray(vec) ? vec : [];
+
+    const axe = v[UNIT_INDEX.axe] || 0;
+    const light = v[UNIT_INDEX.light] || 0;
+    const marcher = hasArcher ? (v[UNIT_INDEX.marcher] || 0) : 0;
+    const ram = v[UNIT_INDEX.ram] || 0;
+
+    const spear = v[UNIT_INDEX.spear] || 0;
+    const sword = v[UNIT_INDEX.sword] || 0;
+    const archer = hasArcher ? (v[UNIT_INDEX.archer] || 0) : 0;
+    const heavy = v[UNIT_INDEX.heavy] || 0;
+
+    const off = (axe * 1) + (light * 4) + (marcher * 5) + (ram * 5);
+    const deff = (spear * 1) + (sword * 1) + (archer * 1) + (heavy * 6);
+
     return { off, deff };
   }
 
@@ -141,8 +145,8 @@ javascript:(function () {
     const { off, deff } = calcOffDeffFarm(vec || []);
     if (!(vec || []).some(v => v > 0)) return { text: T.noSurvivors, color: '#0eae0e', score: 0.0, tag: 'deff' };
 
-    const offScore = Math.min(1, off / 15000);
-    const deffScore = Math.min(1, deff / 20000);
+    const offScore = Math.min(1, off / 23000);
+    const deffScore = Math.min(1, deff / 22000);
     const axeIdx = UNIT_INDEX.axe;
     const hasAxe = axeIdx != null && ((vec?.[axeIdx] || 0) > 0);
 
@@ -154,12 +158,10 @@ javascript:(function () {
 
     if (off > deff) {
       const score = Math.round(offScore * 10) / 10;
-      const text = (off > 3000) ? T.offensive : T.probOffensive;
-      return { text, color: '#ff0000', score, tag: 'off' };
+      return { text: T.offensive, color: '#ff0000', score, tag: 'off' };
     }
     const score = Math.round(deffScore * 10) / 10;
-    const text = (deff > 1000) ? T.defensive : T.probDefensive;
-    return { text, color: '#0eae0e', score, tag: 'deff' };
+    return { text: T.defensive, color: '#0eae0e', score, tag: 'deff' };
   }
 
   function parseVecFromUnitsTable(tableSel, rowIndex1based) {
