@@ -878,8 +878,6 @@ javascript:(function () {
       if (scope === 'home_and_away') {
         if (!isAllZero(snapshot.awayVec || [])) summaryBlock.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
         else summaryBlock.push(`${kz_colorLabel('Měl mimo', '#7a4fff')} —`);
-      } else if (scope === 'home_only') {
-        lines.push(`${kz_colorLabel('Mimo vesnici', '#7a4fff')} neznámé`);
       }
 
       if (summaryBlock.length) lines.push('---------------------------------------------------------------------------', ...summaryBlock, '---------------------------------------------------------------------------');
