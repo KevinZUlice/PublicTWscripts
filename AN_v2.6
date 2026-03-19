@@ -647,7 +647,6 @@ javascript:(function () {
       defenderFaith: meta.defender_faith || '',
       defenderFight: meta.defender_fight || '',
       attackSizeIcon: meta.attack_size_icon || '',
-      attackUnitCount: parseInt(meta.attack_unit_count || '0', 10) || 0,
       targetPlayerName: meta.target_player || '',
     };
 
@@ -767,7 +766,6 @@ javascript:(function () {
       defenderFaith: event.defenderFaith || '',
       defenderFight: event.defenderFight || '',
       attackSizeIcon: event.attackSizeIcon || '',
-      attackUnitCount: parseInt(event.attackUnitCount || 0, 10) || 0,
       targetPlayerName: event.targetPlayerName || '',
     };
   }
@@ -947,7 +945,7 @@ javascript:(function () {
       homeKnown: 0, awayKnown: 0, mainOffDestroyed: 0,
       sourceUser: '', sourceReport: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: [], enemyBonuses: [], buildingDamage: [],
       attackLuck: '', morale: '', defenderFlag: '', attackerFaith: '', attackerFight: '', defenderFaith: '', defenderFight: '',
-      attackSizeIcon: '', attackUnitCount: 0, targetPlayerName: ''
+      attackSizeIcon: '', targetPlayerName: ''
     };
 
     return [
@@ -984,7 +982,6 @@ javascript:(function () {
       `defender_faith=${snap.defenderFaith || ''}`,
       `defender_fight=${snap.defenderFight || ''}`,
       `attack_size_icon=${snap.attackSizeIcon || ''}`,
-      `attack_unit_count=${parseInt(snap.attackUnitCount || 0, 10) || 0}`,
       `target_player=${snap.targetPlayerName || ''}`,
     ].join('\n');
   }
@@ -1195,7 +1192,9 @@ javascript:(function () {
       targetPlayerName: raw.targetPlayerName || '',
     };
 
-    if (raw.iAmAtt && raw.side === 'def') {
+    const isForwarded = !raw.iAmAtt && !raw.iAmDef;
+
+    if ((raw.iAmAtt && raw.side === 'def') || (isForwarded && raw.side === 'def')) {
       event.homeVec = (raw.row2 || []).slice();
       event.awayVec = raw.away != null ? raw.away.slice() : new Array(UNIT_KEYS.length).fill(0);
       event.diedVec = (raw.row3 || []).slice();
@@ -1239,7 +1238,7 @@ javascript:(function () {
         if (event.awayKnown) event.lines.push(fmtLine(T.away, event.awayVec));
       }
 
-    } else if (raw.iAmDef && raw.side === 'att') {
+    } else if ((raw.iAmDef && raw.side === 'att') || (isForwarded && raw.side === 'att')) {
       event.sentVec = (raw.row2 || []).slice();
       event.diedVec = (raw.row3 || []).slice();
       event.survVec = surv.slice();
@@ -1706,9 +1705,9 @@ javascript:(function () {
       sourceReport: kz_extractReportIdFromUrl(sourceUrl || doc.URL || ''),
       catapultSent: iAmAtt ? (attRow2[UNIT_INDEX.catapult] || 0) : (row2[UNIT_INDEX.catapult] || 0),
       attRow2,
-      attackUnitCount: iAmAtt ? kz_sumVec(attRow2) : 0,
-      attackSizeIcon: iAmAtt ? kz_attackSizeIconByCount(kz_sumVec(attRow2)) : '',
-      targetPlayerName: iAmAtt ? defName : '',
+      attackUnitCount: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_sumVec(attRow2) : 0,
+      attackSizeIcon: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_attackSizeIconByCount(kz_sumVec(attRow2)) : '',
+      targetPlayerName: iAmAtt ? defName : ((!iAmAtt && !iAmDef) ? (side === 'def' ? defName : attName) : ''),
       enemyBonuses: kz_parseEnhancementsFromDoc(doc, side === 'def' ? 'def' : 'att'),
       buildingDamage: kz_parseBuildingDamageFromDoc(doc),
       attackLuck: combatStats.attackLuck,
@@ -1867,9 +1866,9 @@ javascript:(function () {
       sourceReport: kz_extractReportIdFromUrl(location.href),
       catapultSent: iAmAtt ? (attRow2[UNIT_INDEX.catapult] || 0) : (row2[UNIT_INDEX.catapult] || 0),
       attRow2,
-      attackUnitCount: iAmAtt ? kz_sumVec(attRow2) : 0,
-      attackSizeIcon: iAmAtt ? kz_attackSizeIconByCount(kz_sumVec(attRow2)) : '',
-      targetPlayerName: iAmAtt ? defName : '',
+      attackUnitCount: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_sumVec(attRow2) : 0,
+      attackSizeIcon: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_attackSizeIconByCount(kz_sumVec(attRow2)) : '',
+      targetPlayerName: iAmAtt ? defName : ((!iAmAtt && !iAmDef) ? (side === 'def' ? defName : attName) : ''),
       enemyBonuses: side === 'def' ? kz_parseEnhancementsFromDoc(document, 'def') : kz_parseEnhancementsFromDoc(document, 'att'),
       buildingDamage: kz_parseBuildingDamageFromDoc(document),
       attackLuck: combatStats.attackLuck,
