@@ -892,7 +892,7 @@ javascript:(function () {
       if (snapshot.attackLuck) contextParts.push(`${kz_luckIcon()} ${snapshot.attackLuck}`);
       if (snapshot.morale && !/^100\s*%?$/.test(String(snapshot.morale).trim())) contextParts.push(`Morálka ${snapshot.morale}`);
       if (snapshot.defenderFlag) { const fi = kz_flagIconFromText(snapshot.defenderFlag); contextParts.push(fi ? `${fi} ${snapshot.defenderFlag}` : `Vlajka ${snapshot.defenderFlag}`); }
-      if (snapshot.paladinDeffHint) contextParts.push('DEFF paladin: ano (kopí+meč ≥ 30% obrana)');
+      if (snapshot.paladinDeffHint) contextParts.push('DEFF [unit]knight[/unit]');
 
       if (contextParts.length) {
         lines.push(`${kz_colorLabel('Kontext útoku', '#b91c1c')} ${contextParts.join(' | ')}`);
