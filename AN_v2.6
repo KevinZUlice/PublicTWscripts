@@ -653,13 +653,13 @@ javascript:(function () {
 
   function kz_parseHistoryLine(line) {
     const parts = String(line || '').split(' | ');
-    if (parts.length < 5) return null;
+    if (parts.length < 4) return null;
     const battleTime = parts[0].trim();
     const type = parts[1].trim();
     const scoreField = parts[2].trim();
     const summary = parts[3].trim();
-    const reportField = parts[4].trim();
-    const reportMatch = reportField.match(/report=(.*)$/);
+    const reportField = parts.find(p => /^report=/.test(String(p || '').trim()));
+    const reportMatch = String(reportField || '').trim().match(/^report=(.*)$/);
     const sourceReport = reportMatch ? reportMatch[1] : '';
     const eventIdField = parts.find(p => /^eid=/.test(String(p || '').trim()));
     const authorField = parts.find(p => /^by=/.test(String(p || '').trim()));
@@ -766,7 +766,7 @@ javascript:(function () {
     const scoreField = `${Number(event.scoreValue || 0).toFixed(1)} ${event.scoreTag || 'deff'}`;
     const eventId = event.eventId || kz_buildEventIdLike(event);
     const author = event.authorUser || event.sourceUser || '';
-    return `${event.battleTime} | ${event.type} | ${scoreField} | ${event.summary} | report=${event.sourceReport || ''} | eid=${eventId}${author ? ` | by=${author}` : ''}`;
+    return `${event.battleTime} | ${event.type} | ${scoreField} | ${event.summary} | eid=${eventId}${author ? ` | by=${author}` : ''}`;
   }
 
   function kz_dedupeHistory(events) {
@@ -775,7 +775,7 @@ javascript:(function () {
     for (const ev of events) {
       const key = ev?.eventId
         ? `eid:${ev.eventId}`
-        : `${ev.battleTime}||${ev.type}||${ev.sourceReport || ''}`;
+        : `${ev.battleTime}||${ev.type}||${ev.summary || ''}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(ev);
@@ -1101,8 +1101,6 @@ javascript:(function () {
       `attack_size_icon=${snap.attackSizeIcon || ''}`,
       `paladin_deff_hint=${snap.paladinDeffHint ? 1 : 0}`,
       `target_player=${snap.targetPlayerName || ''}`,
-      `attacker_name=${snap.attackerName || ''}`,
-      `defender_name=${snap.defenderName || ''}`,
     ].join('\n');
   }
 
@@ -1519,7 +1517,7 @@ javascript:(function () {
       eventId: snap.eventId || kz_buildEventIdLike(snap),
       authorUser: snap.sourceUser || '',
     };
-    line.rawLine = `${line.battleTime} | ${line.type} | ${line.scoreValue.toFixed(1)} ${line.scoreTag} | ${line.summary} | report=${line.sourceReport} | eid=${line.eventId}${line.authorUser ? ` | by=${line.authorUser}` : ''}`;
+    line.rawLine = `${line.battleTime} | ${line.type} | ${line.scoreValue.toFixed(1)} ${line.scoreTag} | ${line.summary} | eid=${line.eventId}${line.authorUser ? ` | by=${line.authorUser}` : ''}`;
     return line;
   }
 
