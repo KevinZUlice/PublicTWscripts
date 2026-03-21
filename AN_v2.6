@@ -851,6 +851,30 @@ javascript:(function () {
     return `${kz_colorLabel(label, color)} ${parts.length ? parts.join(' ') : '—'}`;
   }
 
+  function kz_fmtHomeLineOffAware(snapshot, boldNums) {
+    const vec = snapshot?.homeVec || [];
+    const isKnownOff = (String(snapshot?.villageTag || '').toLowerCase() === 'off')
+      || (String(snapshot?.scoreTag || '').toLowerCase() === 'off');
+    if (!isKnownOff) return kz_fmtLineStyled(T.home, vec, '#2f6fff', boldNums);
+
+    const offOrder = hasArcher ? ['axe', 'light', 'marcher', 'ram'] : ['axe', 'light', 'ram'];
+    const offSet = new Set(offOrder);
+    const nonOffOrder = UNIT_KEYS.filter(u => !offSet.has(u));
+
+    const fmt = (u) => {
+      const idx = UNIT_INDEX[u];
+      const n = idx != null ? (vec?.[idx] || 0) : 0;
+      if (n <= 0) return '';
+      return `[unit]${u}[/unit] ${boldNums ? `[b]${n}[/b]` : n}`;
+    };
+
+    const nonOffParts = nonOffOrder.map(fmt).filter(Boolean);
+    const offParts = offOrder.map(fmt).filter(Boolean);
+
+    if (!offParts.length) return `${kz_colorLabel(T.home, '#2f6fff')} ${nonOffParts.length ? nonOffParts.join(' ') : '—'}`;
+    return `${kz_colorLabel(T.home, '#2f6fff')} ${nonOffParts.join(' ')} [b]|[/b] ${offParts.join(' ')}`.trim();
+  }
+
   function kz_renderSnapshot(snapshot) {
     if (!snapshot) return 'Bez snapshotu';
 
@@ -903,7 +927,7 @@ javascript:(function () {
     const scope = String(snapshot.knowledgeScope || 'unknown');
 
     if (origin === 'village_snapshot') {
-      if (!isAllZero(snapshot.homeVec || [])) lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
+      if (!isAllZero(snapshot.homeVec || [])) lines.push(kz_fmtHomeLineOffAware(snapshot));
 
       // SPY snapshot: chceme čistý výpis stavu vesnice (doma / mimo),
       // bez řádků "Padlo" / "Přežilo".
@@ -956,7 +980,7 @@ javascript:(function () {
     }
 
     if (snapshot.type === 'FULL_SNAPSHOT' || snapshot.type === 'PARTIAL_SNAPSHOT') {
-      lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
+      lines.push(kz_fmtHomeLineOffAware(snapshot));
       if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
       if (snapshot.awayKnown) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
       appendExtras();
