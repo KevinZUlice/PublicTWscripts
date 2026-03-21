@@ -905,6 +905,16 @@ javascript:(function () {
     if (origin === 'village_snapshot') {
       if (!isAllZero(snapshot.homeVec || [])) lines.push(kz_fmtLineStyled(T.home, snapshot.homeVec || [], '#2f6fff'));
 
+      // SPY snapshot: chceme čistý výpis stavu vesnice (doma / mimo),
+      // bez řádků "Padlo" / "Přežilo".
+      if (String(snapshot.attackType || '') === 'SPY_SNAPSHOT') {
+        if (scope === 'home_and_away' && !isAllZero(snapshot.awayVec || [])) {
+          lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
+        }
+        appendExtras();
+        return lines.join('\n');
+      }
+
       const allHomeDied = !isAllZero(snapshot.homeVec || []) && vecEqual(snapshot.homeVec || [], snapshot.diedVec || []);
       const summaryBlock = [];
       if (allHomeDied) {
