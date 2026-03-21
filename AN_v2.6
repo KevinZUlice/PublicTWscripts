@@ -692,6 +692,8 @@ javascript:(function () {
       attackSizeIcon: meta.attack_size_icon || '',
       paladinDeffHint: parseInt(meta.paladin_deff_hint || '0', 10) ? 1 : 0,
       targetPlayerName: meta.target_player || '',
+      attackerName: meta.attacker_name || '',
+      defenderName: meta.defender_name || '',
     };
 
     const history = String(historyText || '')
@@ -812,6 +814,8 @@ javascript:(function () {
       attackSizeIcon: event.attackSizeIcon || '',
       paladinDeffHint: event.paladinDeffHint ? 1 : 0,
       targetPlayerName: event.targetPlayerName || '',
+      attackerName: event.attackerName || '',
+      defenderName: event.defenderName || '',
     };
   }
 
@@ -1023,7 +1027,7 @@ javascript:(function () {
       homeKnown: 0, awayKnown: 0, mainOffDestroyed: 0,
       sourceUser: '', sourceReport: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: [], enemyBonuses: [], buildingDamage: [],
       attackLuck: '', morale: '', defenderFlag: '', attackerFaith: '', attackerFight: '', defenderFaith: '', defenderFight: '',
-      attackSizeIcon: '', paladinDeffHint: 0, targetPlayerName: ''
+      attackSizeIcon: '', paladinDeffHint: 0, targetPlayerName: '', attackerName: '', defenderName: ''
     };
 
     return [
@@ -1062,6 +1066,8 @@ javascript:(function () {
       `attack_size_icon=${snap.attackSizeIcon || ''}`,
       `paladin_deff_hint=${snap.paladinDeffHint ? 1 : 0}`,
       `target_player=${snap.targetPlayerName || ''}`,
+      `attacker_name=${snap.attackerName || ''}`,
+      `defender_name=${snap.defenderName || ''}`,
     ].join('\n');
   }
 
@@ -1269,6 +1275,8 @@ javascript:(function () {
       attackSizeIcon: raw.attackSizeIcon || '',
       attackUnitCount: parseInt(raw.attackUnitCount || 0, 10) || 0,
       targetPlayerName: raw.targetPlayerName || '',
+      attackerName: raw.attackerName || '',
+      defenderName: raw.defenderName || '',
       paladinDeffHint: raw.paladinDeffHint ? 1 : 0,
     };
 
@@ -1815,6 +1823,8 @@ javascript:(function () {
       attackUnitCount: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_sumVec(attRow2) : 0,
       attackSizeIcon: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_attackSizeIconByCount(kz_sumVec(attRow2)) : '',
       targetPlayerName: iAmAtt ? defName : ((!iAmAtt && !iAmDef) ? (side === 'def' ? defName : attName) : ''),
+      attackerName: attName || '',
+      defenderName: defName || '',
       enemyBonuses: kz_parseEnhancementsFromDoc(doc, side === 'def' ? 'def' : 'att'),
       buildingDamage: kz_parseBuildingDamageFromDoc(doc),
       attackLuck: combatStats.attackLuck,
@@ -1986,6 +1996,8 @@ javascript:(function () {
       attackUnitCount: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_sumVec(attRow2) : 0,
       attackSizeIcon: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_attackSizeIconByCount(kz_sumVec(attRow2)) : '',
       targetPlayerName: iAmAtt ? defName : ((!iAmAtt && !iAmDef) ? (side === 'def' ? defName : attName) : ''),
+      attackerName: attName || '',
+      defenderName: defName || '',
       enemyBonuses: side === 'def' ? kz_parseEnhancementsFromDoc(document, 'def') : kz_parseEnhancementsFromDoc(document, 'att'),
       buildingDamage: kz_parseBuildingDamageFromDoc(document),
       attackLuck: combatStats.attackLuck,
