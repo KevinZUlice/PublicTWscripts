@@ -896,11 +896,10 @@ javascript:(function () {
     return `${kz_colorLabel(label, color)} ${parts.length ? parts.join(' ') : '—'}`;
   }
 
-  function kz_fmtHomeLineOffAware(snapshot, boldNums) {
-    const vec = snapshot?.homeVec || [];
+  function kz_fmtLineOffAware(snapshot, label, vec, color, boldNums) {
     const isKnownOff = (String(snapshot?.villageTag || '').toLowerCase() === 'off')
       || (String(snapshot?.scoreTag || '').toLowerCase() === 'off');
-    if (!isKnownOff) return kz_fmtLineStyled(T.home, vec, '#2f6fff', boldNums);
+    if (!isKnownOff) return kz_fmtLineStyled(label, vec, color, boldNums);
 
     const offOrder = hasArcher ? ['axe', 'light', 'marcher', 'ram'] : ['axe', 'light', 'ram'];
     const offSet = new Set(offOrder);
@@ -916,8 +915,13 @@ javascript:(function () {
     const nonOffParts = nonOffOrder.map(fmt).filter(Boolean);
     const offParts = offOrder.map(fmt).filter(Boolean);
 
-    if (!offParts.length) return `${kz_colorLabel(T.home, '#2f6fff')} ${nonOffParts.length ? nonOffParts.join(' ') : '—'}`;
-    return `${kz_colorLabel(T.home, '#2f6fff')} ${nonOffParts.join(' ')} [b]|[/b] ${offParts.join(' ')}`.trim();
+    if (!offParts.length) return `${kz_colorLabel(label, color)} ${nonOffParts.length ? nonOffParts.join(' ') : '—'}`;
+    if (!nonOffParts.length) return `${kz_colorLabel(label, color)} ${offParts.join(' ')}`;
+    return `${kz_colorLabel(label, color)} ${nonOffParts.join(' ')} [b]|[/b] ${offParts.join(' ')}`;
+  }
+
+  function kz_fmtHomeLineOffAware(snapshot, boldNums) {
+    return kz_fmtLineOffAware(snapshot, T.home, snapshot?.homeVec || [], '#2f6fff', boldNums);
   }
 
   function kz_renderSnapshot(snapshot) {
@@ -989,8 +993,8 @@ javascript:(function () {
       if (allHomeDied) {
         lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000'));
       } else {
-        if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
-        if (!isAllZero(snapshot.survVec || [])) summaryBlock.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a', true));
+        if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineOffAware(snapshot, T.died, snapshot.diedVec || [], '#dc2626'));
+        if (!isAllZero(snapshot.survVec || [])) summaryBlock.push(kz_fmtLineOffAware(snapshot, T.survived, snapshot.survVec || [], '#16a34a', true));
       }
 
       if (scope === 'home_and_away') {
@@ -1026,7 +1030,7 @@ javascript:(function () {
 
     if (snapshot.type === 'FULL_SNAPSHOT' || snapshot.type === 'PARTIAL_SNAPSHOT') {
       lines.push(kz_fmtHomeLineOffAware(snapshot));
-      if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
+      if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineOffAware(snapshot, T.died, snapshot.diedVec || [], '#dc2626'));
       if (snapshot.awayKnown) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
       appendExtras();
       return lines.join('\n');
