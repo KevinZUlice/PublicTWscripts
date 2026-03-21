@@ -587,6 +587,7 @@ javascript:(function () {
       mainOffDestroyed,
       sourceUser: '',
       sourceReport: '',
+      eventId: '',
       homeVec,
       awayVec,
       sentVec,
@@ -627,6 +628,29 @@ javascript:(function () {
     return meta;
   }
 
+  function kz_hashStr(input) {
+    const str = String(input || '');
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
+    return (h >>> 0).toString(36);
+  }
+
+  function kz_buildEventIdLike(obj) {
+    const parts = [
+      obj?.battleTime || '',
+      obj?.type || '',
+      obj?.sourceReport || '',
+      obj?.attackType || '',
+      obj?.knowledgeScope || '',
+      kz_vecToCsv(obj?.homeVec || []),
+      kz_vecToCsv(obj?.awayVec || []),
+      kz_vecToCsv(obj?.sentVec || []),
+      kz_vecToCsv(obj?.diedVec || []),
+      kz_vecToCsv(obj?.survVec || []),
+    ];
+    return `ev_${kz_hashStr(parts.join('|'))}`;
+  }
+
   function kz_parseHistoryLine(line) {
     const parts = String(line || '').split(' | ');
     if (parts.length < 5) return null;
@@ -637,6 +661,8 @@ javascript:(function () {
     const reportField = parts[4].trim();
     const reportMatch = reportField.match(/report=(.*)$/);
     const sourceReport = reportMatch ? reportMatch[1] : '';
+    const eventIdField = parts.find(p => /^eid=/.test(String(p || '').trim()));
+    const authorField = parts.find(p => /^by=/.test(String(p || '').trim()));
     const scoreMatch = scoreField.match(/^([0-9]+(?:\.[0-9]+)?)\s+(off|deff|mix)$/i);
     return {
       battleTime,
@@ -646,6 +672,8 @@ javascript:(function () {
       scoreTag: scoreMatch ? (scoreMatch[2].toLowerCase() === 'off' ? 'off' : 'deff') : 'deff',
       summary,
       sourceReport,
+      eventId: eventIdField ? String(eventIdField).trim().replace(/^eid=/, '') : '',
+      authorUser: authorField ? String(authorField).trim().replace(/^by=/, '') : '',
       rawLine: line.trim(),
     };
   }
@@ -675,6 +703,7 @@ javascript:(function () {
       mainOffDestroyed: parseInt(meta.main_off_destroyed || '0', 10) ? 1 : 0,
       sourceUser: meta.source_user || '',
       sourceReport: meta.source_report || '',
+      eventId: meta.snapshot_event_id || '',
       homeVec: kz_csvToVec(meta.home_vec || ''),
       awayVec: kz_csvToVec(meta.away_vec || ''),
       sentVec: kz_csvToVec(meta.sent_vec || ''),
@@ -735,14 +764,18 @@ javascript:(function () {
 
   function kz_renderHistoryLine(event) {
     const scoreField = `${Number(event.scoreValue || 0).toFixed(1)} ${event.scoreTag || 'deff'}`;
-    return `${event.battleTime} | ${event.type} | ${scoreField} | ${event.summary} | report=${event.sourceReport || ''}`;
+    const eventId = event.eventId || kz_buildEventIdLike(event);
+    const author = event.authorUser || event.sourceUser || '';
+    return `${event.battleTime} | ${event.type} | ${scoreField} | ${event.summary} | report=${event.sourceReport || ''} | eid=${eventId}${author ? ` | by=${author}` : ''}`;
   }
 
   function kz_dedupeHistory(events) {
     const seen = new Set();
     const out = [];
     for (const ev of events) {
-      const key = `${ev.battleTime}||${ev.type}||${ev.sourceReport || ''}`;
+      const key = ev?.eventId
+        ? `eid:${ev.eventId}`
+        : `${ev.battleTime}||${ev.type}||${ev.sourceReport || ''}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(ev);
@@ -797,6 +830,7 @@ javascript:(function () {
       mainOffDestroyed: event.mainOffDestroyed ? 1 : 0,
       sourceUser: event.sourceUser || '',
       sourceReport: event.sourceReport || '',
+      eventId: event.eventId || kz_buildEventIdLike(event),
       homeVec: event.homeVec || new Array(UNIT_KEYS.length).fill(0),
       awayVec: event.awayVec || new Array(UNIT_KEYS.length).fill(0),
       sentVec: event.sentVec || new Array(UNIT_KEYS.length).fill(0),
@@ -1025,7 +1059,7 @@ javascript:(function () {
       knowledgeScope: 'unknown',
       
       homeKnown: 0, awayKnown: 0, mainOffDestroyed: 0,
-      sourceUser: '', sourceReport: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: [], enemyBonuses: [], buildingDamage: [],
+      sourceUser: '', sourceReport: '', eventId: '', homeVec: [], awayVec: [], sentVec: [], diedVec: [], survVec: [], enemyBonuses: [], buildingDamage: [],
       attackLuck: '', morale: '', defenderFlag: '', attackerFaith: '', attackerFight: '', defenderFaith: '', defenderFight: '',
       attackSizeIcon: '', paladinDeffHint: 0, targetPlayerName: '', attackerName: '', defenderName: ''
     };
@@ -1049,6 +1083,7 @@ javascript:(function () {
       `main_off_destroyed=${snap.mainOffDestroyed ? 1 : 0}`,
       `source_user=${snap.sourceUser || ''}`,
       `source_report=${snap.sourceReport || ''}`,
+      `snapshot_event_id=${snap.eventId || ''}`,
       `home_vec=${kz_vecToCsv(snap.homeVec)}`,
       `away_vec=${kz_vecToCsv(snap.awayVec)}`,
       `sent_vec=${kz_vecToCsv(snap.sentVec)}`,
@@ -1255,7 +1290,9 @@ javascript:(function () {
       awayKnown: 0,
       mainOffDestroyed: 0,
       sourceUser: ME,
+      authorUser: ME,
       sourceReport: raw.sourceReport || '',
+      eventId: '',
       homeVec: new Array(UNIT_KEYS.length).fill(0),
       awayVec: new Array(UNIT_KEYS.length).fill(0),
       sentVec: new Array(UNIT_KEYS.length).fill(0),
@@ -1396,6 +1433,7 @@ javascript:(function () {
       if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
     }
 
+    event.eventId = event.eventId || kz_buildEventIdLike(event);
     event.summary = kz_buildHistorySummary(event);
     event.rawLine = kz_renderHistoryLine(event);
     return event;
@@ -1445,6 +1483,8 @@ javascript:(function () {
       scoreTag: event.scoreTag,
       summary: event.summary,
       sourceReport: event.sourceReport || '',
+      eventId: event.eventId || '',
+      authorUser: event.authorUser || event.sourceUser || '',
       rawLine: event.rawLine,
     });
     state.history = kz_dedupeHistory(state.history);
@@ -1476,8 +1516,10 @@ javascript:(function () {
       scoreTag,
       summary: snap.knowledgeScope === 'home_and_away' ? 'doma+mimo' : (snap.knowledgeScope === 'home_only' ? 'doma' : 'snapshot'),
       sourceReport: snap.sourceReport || '',
+      eventId: snap.eventId || kz_buildEventIdLike(snap),
+      authorUser: snap.sourceUser || '',
     };
-    line.rawLine = `${line.battleTime} | ${line.type} | ${line.scoreValue.toFixed(1)} ${line.scoreTag} | ${line.summary} | report=${line.sourceReport}`;
+    line.rawLine = `${line.battleTime} | ${line.type} | ${line.scoreValue.toFixed(1)} ${line.scoreTag} | ${line.summary} | report=${line.sourceReport} | eid=${line.eventId}${line.authorUser ? ` | by=${line.authorUser}` : ''}`;
     return line;
   }
 
@@ -1558,8 +1600,9 @@ javascript:(function () {
   }
 
   function kz_hasUniqueOwnIntel(ownState, mergedState) {
-    const ownHist = new Set((ownState?.history || []).map(h => h?.rawLine).filter(Boolean));
-    const mergedHist = new Set((mergedState?.history || []).map(h => h?.rawLine).filter(Boolean));
+    const histKey = (h) => h?.eventId || h?.rawLine || '';
+    const ownHist = new Set((ownState?.history || []).map(histKey).filter(Boolean));
+    const mergedHist = new Set((mergedState?.history || []).map(histKey).filter(Boolean));
     for (const line of ownHist) if (mergedHist.has(line)) return true;
 
     const ownSnapReport = String(ownState?.snapshot?.sourceReport || '').trim();
