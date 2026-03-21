@@ -653,13 +653,13 @@ javascript:(function () {
 
   function kz_parseHistoryLine(line) {
     const parts = String(line || '').split(' | ');
-    if (parts.length < 5) return null;
+    if (parts.length < 4) return null;
     const battleTime = parts[0].trim();
     const type = parts[1].trim();
     const scoreField = parts[2].trim();
     const summary = parts[3].trim();
-    const reportField = parts[4].trim();
-    const reportMatch = reportField.match(/report=(.*)$/);
+    const reportField = parts.find(p => /^report=/.test(String(p || '').trim()));
+    const reportMatch = String(reportField || '').trim().match(/^report=(.*)$/);
     const sourceReport = reportMatch ? reportMatch[1] : '';
     const eventIdField = parts.find(p => /^eid=/.test(String(p || '').trim()));
     const authorField = parts.find(p => /^by=/.test(String(p || '').trim()));
@@ -766,7 +766,7 @@ javascript:(function () {
     const scoreField = `${Number(event.scoreValue || 0).toFixed(1)} ${event.scoreTag || 'deff'}`;
     const eventId = event.eventId || kz_buildEventIdLike(event);
     const author = event.authorUser || event.sourceUser || '';
-    return `${event.battleTime} | ${event.type} | ${scoreField} | ${event.summary} | report=${event.sourceReport || ''} | eid=${eventId}${author ? ` | by=${author}` : ''}`;
+    return `${event.battleTime} | ${event.type} | ${scoreField} | ${event.summary} | eid=${eventId}${author ? ` | by=${author}` : ''}`;
   }
 
   function kz_dedupeHistory(events) {
@@ -775,7 +775,7 @@ javascript:(function () {
     for (const ev of events) {
       const key = ev?.eventId
         ? `eid:${ev.eventId}`
-        : `${ev.battleTime}||${ev.type}||${ev.sourceReport || ''}`;
+        : `${ev.battleTime}||${ev.type}||${ev.summary || ''}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(ev);
@@ -896,11 +896,10 @@ javascript:(function () {
     return `${kz_colorLabel(label, color)} ${parts.length ? parts.join(' ') : '—'}`;
   }
 
-  function kz_fmtHomeLineOffAware(snapshot, boldNums) {
-    const vec = snapshot?.homeVec || [];
+  function kz_fmtLineOffAware(snapshot, label, vec, color, boldNums) {
     const isKnownOff = (String(snapshot?.villageTag || '').toLowerCase() === 'off')
       || (String(snapshot?.scoreTag || '').toLowerCase() === 'off');
-    if (!isKnownOff) return kz_fmtLineStyled(T.home, vec, '#2f6fff', boldNums);
+    if (!isKnownOff) return kz_fmtLineStyled(label, vec, color, boldNums);
 
     const offOrder = hasArcher ? ['axe', 'light', 'marcher', 'ram'] : ['axe', 'light', 'ram'];
     const offSet = new Set(offOrder);
@@ -916,8 +915,13 @@ javascript:(function () {
     const nonOffParts = nonOffOrder.map(fmt).filter(Boolean);
     const offParts = offOrder.map(fmt).filter(Boolean);
 
-    if (!offParts.length) return `${kz_colorLabel(T.home, '#2f6fff')} ${nonOffParts.length ? nonOffParts.join(' ') : '—'}`;
-    return `${kz_colorLabel(T.home, '#2f6fff')} ${nonOffParts.join(' ')} [b]|[/b] ${offParts.join(' ')}`.trim();
+    if (!offParts.length) return `${kz_colorLabel(label, color)} ${nonOffParts.length ? nonOffParts.join(' ') : '—'}`;
+    if (!nonOffParts.length) return `${kz_colorLabel(label, color)} ${offParts.join(' ')}`;
+    return `${kz_colorLabel(label, color)} ${nonOffParts.join(' ')} [b]|[/b] ${offParts.join(' ')}`;
+  }
+
+  function kz_fmtHomeLineOffAware(snapshot, boldNums) {
+    return kz_fmtLineOffAware(snapshot, T.home, snapshot?.homeVec || [], '#2f6fff', boldNums);
   }
 
   function kz_renderSnapshot(snapshot) {
@@ -989,8 +993,8 @@ javascript:(function () {
       if (allHomeDied) {
         lines.push(kz_fmtLineStyled(T.died100, snapshot.diedVec || [], '#ff0000'));
       } else {
-        if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
-        if (!isAllZero(snapshot.survVec || [])) summaryBlock.push(kz_fmtLineStyled(T.survived, snapshot.survVec || [], '#16a34a', true));
+        if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineOffAware(snapshot, T.died, snapshot.diedVec || [], '#dc2626'));
+        if (!isAllZero(snapshot.survVec || [])) summaryBlock.push(kz_fmtLineOffAware(snapshot, T.survived, snapshot.survVec || [], '#16a34a', true));
       }
 
       if (scope === 'home_and_away') {
@@ -1026,7 +1030,7 @@ javascript:(function () {
 
     if (snapshot.type === 'FULL_SNAPSHOT' || snapshot.type === 'PARTIAL_SNAPSHOT') {
       lines.push(kz_fmtHomeLineOffAware(snapshot));
-      if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineStyled(T.died, snapshot.diedVec || [], '#dc2626'));
+      if (!isAllZero(snapshot.diedVec || [])) lines.push(kz_fmtLineOffAware(snapshot, T.died, snapshot.diedVec || [], '#dc2626'));
       if (snapshot.awayKnown) lines.push(kz_fmtLineStyled(T.away, snapshot.awayVec || [], '#7a4fff', true));
       appendExtras();
       return lines.join('\n');
@@ -1101,8 +1105,6 @@ javascript:(function () {
       `attack_size_icon=${snap.attackSizeIcon || ''}`,
       `paladin_deff_hint=${snap.paladinDeffHint ? 1 : 0}`,
       `target_player=${snap.targetPlayerName || ''}`,
-      `attacker_name=${snap.attackerName || ''}`,
-      `defender_name=${snap.defenderName || ''}`,
     ].join('\n');
   }
 
@@ -1519,7 +1521,7 @@ javascript:(function () {
       eventId: snap.eventId || kz_buildEventIdLike(snap),
       authorUser: snap.sourceUser || '',
     };
-    line.rawLine = `${line.battleTime} | ${line.type} | ${line.scoreValue.toFixed(1)} ${line.scoreTag} | ${line.summary} | report=${line.sourceReport} | eid=${line.eventId}${line.authorUser ? ` | by=${line.authorUser}` : ''}`;
+    line.rawLine = `${line.battleTime} | ${line.type} | ${line.scoreValue.toFixed(1)} ${line.scoreTag} | ${line.summary} | eid=${line.eventId}${line.authorUser ? ` | by=${line.authorUser}` : ''}`;
     return line;
   }
 
