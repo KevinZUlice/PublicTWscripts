@@ -232,6 +232,13 @@ javascript:(function () {
     return (Array.isArray(vec) ? vec : []).reduce((acc, n) => acc + (parseInt(n, 10) || 0), 0);
   }
 
+  function kz_vecPopulation(vec) {
+    const v = Array.isArray(vec) ? vec : [];
+    let pop = 0;
+    for (let i = 0; i < Math.min(v.length, FARM.length); i++) pop += (parseInt(v[i], 10) || 0) * (FARM[i] || 0);
+    return pop;
+  }
+
   function kz_attackSizeIconByCount(unitCount) {
     const n = parseInt(unitCount, 10) || 0;
     if (n <= 0) return '';
@@ -1283,6 +1290,8 @@ javascript:(function () {
       const hasHomeIntel = !isAllZero(event.homeVec) || !isAllZero(event.diedVec) || !isAllZero(event.survVec);
       const hasAwayIntel = raw.away != null;
       const noIntel = !!raw.noIntel || (!hasHomeIntel && !hasAwayIntel);
+      const attPop = kz_vecPopulation(raw.attRow2 || []);
+      const isSpySnapshotByPop = attPop > 0 && attPop <= 200;
 
       if (noIntel) {
         event.type = 'NO_INTEL_ATTACK';
@@ -1296,7 +1305,7 @@ javascript:(function () {
         event.homeKnown = 0;
         event.awayKnown = 0;
         event.lines.push('[color=#b91c1c][b]Bez odhalení:[/b][/color] žádné info o síle obránce.');
-      } else {
+      } else if (isSpySnapshotByPop) {
         event.type = hasAwayIntel ? 'FULL_SNAPSHOT' : 'PARTIAL_SNAPSHOT';
         event.strength = hasAwayIntel ? 4 : 3;
         event.confidence = hasAwayIntel ? 'high' : 'medium';
@@ -1312,6 +1321,29 @@ javascript:(function () {
         if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died, event.diedVec));
         if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
         if (event.awayKnown) event.lines.push(fmtLine(T.away, event.awayVec));
+      } else {
+        event.type = 'ATTACK_EVENT';
+        event.strength = 1;
+        event.confidence = 'low';
+
+        event.intelOrigin = 'attack_event';
+        event.knowledgeScope = 'sent_only';
+        event.attackType = (raw.catapultSent || 0) > 0 ? ((event.buildingDamage || []).length ? 'CATA_STRIKE' : 'CATA_ATTACK') : 'STANDARD_ATTACK';
+
+        event.sentVec = (raw.attRow2 || []).slice();
+        event.diedVec = (raw.attRow3 || []).slice();
+        event.survVec = vecSub(raw.attRow2 || [], raw.attRow3 || []);
+        event.homeVec = kz_zeroVec();
+        event.awayVec = kz_zeroVec();
+        event.homeKnown = 0;
+        event.awayKnown = 0;
+
+        if (vecEqual(event.sentVec, event.diedVec)) {
+          if (!isAllZero(event.diedVec)) event.lines.push(fmtLine(T.died100, event.diedVec));
+        } else {
+          if (!isAllZero(event.sentVec)) event.lines.push(fmtLine(T.sent, event.sentVec));
+          if (!isAllZero(event.survVec)) event.lines.push(fmtLine(T.survived, event.survVec));
+        }
       }
 
     } else if ((raw.iAmDef && raw.side === 'att') || (isForwarded && raw.side === 'att')) {
@@ -1786,6 +1818,7 @@ javascript:(function () {
       sourceReport: kz_extractReportIdFromUrl(sourceUrl || doc.URL || ''),
       catapultSent: iAmAtt ? (attRow2[UNIT_INDEX.catapult] || 0) : (row2[UNIT_INDEX.catapult] || 0),
       attRow2,
+      attRow3,
       attackUnitCount: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_sumVec(attRow2) : 0,
       attackSizeIcon: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_attackSizeIconByCount(kz_sumVec(attRow2)) : '',
       targetPlayerName: iAmAtt ? defName : ((!iAmAtt && !iAmDef) ? (side === 'def' ? defName : attName) : ''),
@@ -1956,6 +1989,7 @@ javascript:(function () {
       sourceReport: kz_extractReportIdFromUrl(location.href),
       catapultSent: iAmAtt ? (attRow2[UNIT_INDEX.catapult] || 0) : (row2[UNIT_INDEX.catapult] || 0),
       attRow2,
+      attRow3,
       attackUnitCount: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_sumVec(attRow2) : 0,
       attackSizeIcon: (iAmAtt || (!iAmAtt && !iAmDef && side === 'def')) ? kz_attackSizeIconByCount(kz_sumVec(attRow2)) : '',
       targetPlayerName: iAmAtt ? defName : ((!iAmAtt && !iAmDef) ? (side === 'def' ? defName : attName) : ''),
